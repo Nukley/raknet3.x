@@ -1,0 +1,29 @@
+#include "PacketFileLogger.h"
+#include "GetTime.h"
+
+PacketFileLogger::PacketFileLogger()
+{
+	packetLogFile=0;
+}
+PacketFileLogger::~PacketFileLogger()
+{
+	if (packetLogFile)
+		fclose(packetLogFile);
+}
+void PacketFileLogger::StartLog(const char *filenamePrefix)
+{
+	// Open file for writing
+	char filename[256];
+	if (filenamePrefix)
+		sprintf(filename, "%s_%i.csv", filenamePrefix, RakNet::GetTime());
+	else
+		sprintf(filename, "PacketLog_%i.csv", RakNet::GetTime());
+	packetLogFile = fopen(filename, "wt");
+	LogHeader();
+}
+
+void PacketFileLogger::WriteLog(const char *str)
+{
+	if (packetLogFile)
+		fprintf(packetLogFile, "%s\n", str);
+}
