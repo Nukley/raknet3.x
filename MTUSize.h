@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -30,15 +30,14 @@
 /// \li \em 1430. The size VPN and PPTP prefer.
 /// \li \em 1400. Maximum size for AOL DSL.
 /// \li \em 576. Typical value to connect to dial-up ISPs.
-#ifdef _COMPATIBILITY_1
+#ifdef _CONSOLE_1
 #define DEFAULT_MTU_SIZE 1264
 #else
-#define DEFAULT_MTU_SIZE 1500
+#define DEFAULT_MTU_SIZE 1492
 #endif
 
 /// The largest value for an UDP datagram
 /// \sa RakPeer::SetMTUSize()
-#define MAXIMUM_MTU_SIZE 1500
+#define MAXIMUM_MTU_SIZE 1492
 
 #endif
-

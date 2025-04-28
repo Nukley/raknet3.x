@@ -1,16 +1,21 @@
 #ifndef __THREAD_POOL_H
 #define __THREAD_POOL_H
 
+#include "RakMemoryOverride.h"
 #include "DS_Queue.h"
 #include "SimpleMutex.h"
 #include "Export.h"
+
+#ifdef _MSC_VER
+#pragma warning( push )
+#endif
 
 /// A simple class to create work threads that processes a queue of functions with data.
 /// This class does not allocate or deallocate memory.  It is up to the user to handle memory management.
 /// InputType and OutputType are stored directly in a queue.  For large structures, if you plan to delete from the middle of the queue,
 /// you might wish to store pointers rather than the structures themselves so the array can shift efficiently.
 template <class InputType, class OutputType>
-struct RAK_DLL_EXPORT ThreadPool
+struct RAK_DLL_EXPORT ThreadPool : public RakNet::RakMemoryOverride
 {
 	ThreadPool();
 	~ThreadPool();
@@ -18,8 +23,10 @@ struct RAK_DLL_EXPORT ThreadPool
 	/// Start the specified number of threads.
 	/// \param[in] numThreads The number of threads to start
 	/// \param[in] stackSize 0 for default (except on consoles).
+	/// \param[in] _perThreadDataFactory User callback to return data stored per thread.  Pass 0 if not needed.
+	/// \param[in] _perThreadDataDestructor User callback to destroy data stored per thread, created by _perThreadDataFactory.  Pass 0 if not needed.
 	/// \return True on success, false on failure.
-	bool StartThreads(int numThreads, int stackSize);
+	bool StartThreads(int numThreads, int stackSize, void* (*_perThreadDataFactory)()=0, void (*_perThreadDataDestructor)(void*)=0);
 
 	/// Stops all threads
 	void StopThreads(void);
@@ -27,12 +34,12 @@ struct RAK_DLL_EXPORT ThreadPool
 	/// Adds a function to a queue with data to pass to that function.  This function will be called from the thread
 	/// Memory management is your responsibility!  This class does not allocate or deallocate memory.
 	/// The best way to deallocate \a inputData is in userCallback.  If you call EndThreads such that callbacks were not called, you
-	/// can iterate through the inputDataQueue and deallocate all pending input data there
+	/// can iterate through the inputQueue and deallocate all pending input data there
 	/// The best way to deallocate output is as it is returned to you from GetOutput.  Similarly, if you end the threads such that
 	/// not all output was returned, you can iterate through outputQueue and deallocate it there.
 	/// \param[in] workerThreadCallback The function to call from the thread
 	/// \param[in] inputData The parameter to pass to \a userCallback
-	void AddInput(OutputType (*workerThreadCallback)(InputType, bool *returnOutput), InputType inputData);
+	void AddInput(OutputType (*workerThreadCallback)(InputType, bool *returnOutput, void* perThreadData), InputType inputData);
 
 	/// Returns true if output from GetOutput is waiting.
 	/// \return true if output is waiting, false otherwise
@@ -41,6 +48,14 @@ struct RAK_DLL_EXPORT ThreadPool
 	/// Inaccurate but fast version of HasOutput.  If this returns true, you should still check HasOutput for the real value.
 	/// \return true if output is probably waiting, false otherwise
 	bool HasOutputFast(void);
+
+	/// Returns true if input from GetInput is waiting.
+	/// \return true if input is waiting, false otherwise
+	bool HasInput(void);
+
+	/// Inaccurate but fast version of HasInput.  If this returns true, you should still check HasInput for the real value.
+	/// \return true if input is probably waiting, false otherwise
+	bool HasInputFast(void);
 
 	/// Gets the output of a call to \a userCallback
 	/// HasOutput must return true before you call this function.  Otherwise it will assert.
@@ -88,19 +103,28 @@ struct RAK_DLL_EXPORT ThreadPool
 	/// Removes all items from the output queue
 	void ClearOutput(void);
 
+	/// Are any of the threads working, or is input or output available?
+	bool IsWorking(void);
+
+	/// The number of currently active threads.
+	int NumThreadsWorking(void);
+
 protected:
 	// It is valid to cancel input before it is processed.  To do so, lock the inputQueue with inputQueueMutex,
 	// Scan the list, and remove the item you don't want.
-	SimpleMutex inputQueueMutex, outputQueueMutex;
+	SimpleMutex inputQueueMutex, outputQueueMutex, workingThreadCountMutex;
 
-	// inputFunctionQueue & inputDataQueue are paired arrays so if you delete from one at a particular index you must delete from the other
+	void* (*perThreadDataFactory)();
+	void (*perThreadDataDestructor)(void*);
+
+	// inputFunctionQueue & inputQueue are paired arrays so if you delete from one at a particular index you must delete from the other
 	// at the same index
-	DataStructures::Queue<OutputType (*)(InputType, bool *returnOutput)> inputFunctionQueue;
-	DataStructures::Queue<InputType> inputDataQueue;
+	DataStructures::Queue<OutputType (*)(InputType, bool *, void*)> inputFunctionQueue;
+	DataStructures::Queue<InputType> inputQueue;
 
 	DataStructures::Queue<OutputType> outputQueue;
 
-	template <class InputType, class OutputType>
+	template <class ThreadInputType, class ThreadOutputType>
 #ifdef _WIN32
 	friend unsigned __stdcall WorkerThread( LPVOID arguments );
 #else
@@ -111,6 +135,8 @@ protected:
 	bool threadsRunning;
 	/// \internal
 	int numThreadsRunning;
+	/// \internal
+	int numThreadsWorking;
 	/// \internal
 	SimpleMutex numThreadsRunningMutex;
 #ifdef _WIN32
@@ -128,7 +154,12 @@ protected:
 #include <pthread.h>
 #endif
 
-template <class InputType, class OutputType>
+#ifdef _MSC_VER
+#pragma warning(disable:4127)
+#pragma warning( disable : 4701 )  // potentially uninitialized local variable 'inputData' used
+#endif
+
+template <class ThreadInputType, class ThreadOutputType>
 #ifdef _WIN32
 unsigned __stdcall WorkerThread( LPVOID arguments )
 #else
@@ -136,17 +167,24 @@ void* WorkerThread( void* arguments )
 #endif
 {
 	bool returnOutput;
-	ThreadPool<InputType, OutputType> *threadPool = (ThreadPool<InputType, OutputType>*) arguments;
-	OutputType (*userCallback)(InputType, bool *returnOutput);
-	InputType inputData;
-	OutputType callbackOutput;
+	ThreadPool<ThreadInputType, ThreadOutputType> *threadPool = (ThreadPool<ThreadInputType, ThreadOutputType>*) arguments;
+	ThreadOutputType (*userCallback)(ThreadInputType, bool *, void*);
+	ThreadInputType inputData;
+	ThreadOutputType callbackOutput;
 
 	userCallback=0;
+
+	void *perThreadData;
+	if (threadPool->perThreadDataFactory)
+		perThreadData=threadPool->perThreadDataFactory();
+	else
+		perThreadData=0;
 
 	// Increase numThreadsRunning
 	threadPool->numThreadsRunningMutex.Lock();
 	++threadPool->numThreadsRunning;
 	threadPool->numThreadsRunningMutex.Unlock();
+
 
 	while (1)
 	{
@@ -165,19 +203,23 @@ void* WorkerThread( void* arguments )
 		if (threadPool->threadsRunning==false)
 			break;
 
+		threadPool->workingThreadCountMutex.Lock();
+		++threadPool->numThreadsWorking;
+		threadPool->workingThreadCountMutex.Unlock();
+
 		// Read input data
 		userCallback=0;
 		threadPool->inputQueueMutex.Lock();
 		if (threadPool->inputFunctionQueue.Size())
 		{
 			userCallback=threadPool->inputFunctionQueue.Pop();
-			inputData=threadPool->inputDataQueue.Pop();
+			inputData=threadPool->inputQueue.Pop();
 		}
 		threadPool->inputQueueMutex.Unlock();
 
 		if (userCallback)
 		{
-			callbackOutput=userCallback(inputData, &returnOutput);
+			callbackOutput=userCallback(inputData, &returnOutput,perThreadData);
 			if (returnOutput)
 			{
 				threadPool->outputQueueMutex.Lock();
@@ -185,6 +227,10 @@ void* WorkerThread( void* arguments )
 				threadPool->outputQueueMutex.Unlock();
 			}			
 		}
+
+		threadPool->workingThreadCountMutex.Lock();
+		--threadPool->numThreadsWorking;
+		threadPool->workingThreadCountMutex.Unlock();
 
 #ifndef _WIN32
 		// If no input data available, and GCC, then sleep.
@@ -197,6 +243,9 @@ void* WorkerThread( void* arguments )
 	threadPool->numThreadsRunningMutex.Lock();
 	--threadPool->numThreadsRunning;
 	threadPool->numThreadsRunningMutex.Unlock();
+
+	if (threadPool->perThreadDataDestructor)
+		threadPool->perThreadDataDestructor(perThreadData);
 
 	return 0;
 }
@@ -214,7 +263,7 @@ ThreadPool<InputType, OutputType>::~ThreadPool()
 }
 
 template <class InputType, class OutputType>
-bool ThreadPool<InputType, OutputType>::StartThreads(int numThreads, int stackSize)
+bool ThreadPool<InputType, OutputType>::StartThreads(int numThreads, int stackSize, void* (*_perThreadDataFactory)(), void (*_perThreadDataDestructor)(void *))
 {
 	if (threadsRunning==true)
 		return false;
@@ -224,13 +273,17 @@ bool ThreadPool<InputType, OutputType>::StartThreads(int numThreads, int stackSi
 	quitAndIncomingDataEvents[1]=CreateEvent(0, false, false, 0);
 #endif
 
+	perThreadDataFactory=_perThreadDataFactory;
+	perThreadDataDestructor=_perThreadDataDestructor;
+
+	numThreadsWorking=0;
 	unsigned threadId = 0;
 	int i;
 	for (i=0; i < numThreads; i++)
 	{
 #ifdef _WIN32
 		HANDLE threadHandle;
-#ifdef _COMPATIBILITY_1
+#ifdef _CONSOLE_1
 		threadHandle = ( HANDLE ) _beginthreadex( NULL, 0, WorkerThread<InputType, OutputType>, this, 0, &threadId );
 #else
 		threadHandle = ( HANDLE ) _beginthreadex( NULL, stackSize, WorkerThread<InputType, OutputType>, this, 0, &threadId );
@@ -253,7 +306,7 @@ bool ThreadPool<InputType, OutputType>::StartThreads(int numThreads, int stackSi
 		//  pthread_attr_setschedparam(&attr, &sp);
 
 		int error;
-		error = pthread_create( &threadHandle, &attr, &WorkerThread, this );
+		error = pthread_create( &threadHandle, &attr, &WorkerThread<InputType, OutputType>, this );
 
 		if ( error )
 		{
@@ -308,10 +361,10 @@ void ThreadPool<InputType, OutputType>::StopThreads(void)
 #endif
 }
 template <class InputType, class OutputType>
-void ThreadPool<InputType, OutputType>::AddInput(OutputType (*workerThreadCallback)(InputType, bool *returnOutput), InputType inputData)
+void ThreadPool<InputType, OutputType>::AddInput(OutputType (*workerThreadCallback)(InputType, bool *returnOutput, void* perThreadData), InputType inputData)
 {
 	inputQueueMutex.Lock();
-	inputDataQueue.Push(inputData);
+	inputQueue.Push(inputData);
 	inputFunctionQueue.Push(workerThreadCallback);
 	inputQueueMutex.Unlock();
 
@@ -335,6 +388,20 @@ bool ThreadPool<InputType, OutputType>::HasOutput(void)
 	return res;
 }
 template <class InputType, class OutputType>
+bool ThreadPool<InputType, OutputType>::HasInputFast(void)
+{
+	return inputQueue.IsEmpty()==false;
+}
+template <class InputType, class OutputType>
+bool ThreadPool<InputType, OutputType>::HasInput(void)
+{
+	bool res;
+	inputQueueMutex.Lock();
+	res=inputQueue.IsEmpty()==false;
+	inputQueueMutex.Unlock();
+	return res;
+}
+template <class InputType, class OutputType>
 OutputType ThreadPool<InputType, OutputType>::GetOutput(void)
 {
 	// Real output check
@@ -351,7 +418,7 @@ void ThreadPool<InputType, OutputType>::Clear(void)
 	{
 		inputQueueMutex.Lock();
 		inputFunctionQueue.Clear();
-		inputDataQueue.Clear();
+		inputQueue.Clear();
 		inputQueueMutex.Unlock();
 
 		outputQueueMutex.Lock();
@@ -361,7 +428,7 @@ void ThreadPool<InputType, OutputType>::Clear(void)
 	else
 	{
 		inputFunctionQueue.Clear();
-		inputDataQueue.Clear();
+		inputQueue.Clear();
 		outputQueue.Clear();
 	}
 }
@@ -378,18 +445,18 @@ void ThreadPool<InputType, OutputType>::UnlockInput(void)
 template <class InputType, class OutputType>
 unsigned ThreadPool<InputType, OutputType>::InputSize(void)
 {
-	return inputDataQueue.Size();
+	return inputQueue.Size();
 }
 template <class InputType, class OutputType>
 InputType ThreadPool<InputType, OutputType>::GetInputAtIndex(unsigned index)
 {
-	return inputDataQueue[index];
+	return inputQueue[index];
 }
 template <class InputType, class OutputType>
 void ThreadPool<InputType, OutputType>::RemoveInputAtIndex(unsigned index)
 {
-	inputDataQueue.Del(index);
-	inputFunctionQueue.Del(index);
+	inputQueue.RemoveAtIndex(index);
+	inputFunctionQueue.RemoveAtIndex(index);
 }
 template <class InputType, class OutputType>
 void ThreadPool<InputType, OutputType>::LockOutput(void)
@@ -414,12 +481,12 @@ OutputType ThreadPool<InputType, OutputType>::GetOutputAtIndex(unsigned index)
 template <class InputType, class OutputType>
 void ThreadPool<InputType, OutputType>::RemoveOutputAtIndex(unsigned index)
 {
-	outputQueue.Del(index);
+	outputQueue.RemoveAtIndex(index);
 }
 template <class InputType, class OutputType>
 void ThreadPool<InputType, OutputType>::ClearInput(void)
 {
-	inputDataQueue.Clear();
+	inputQueue.Clear();
 	inputFunctionQueue.Clear();
 }
 
@@ -428,6 +495,43 @@ void ThreadPool<InputType, OutputType>::ClearOutput(void)
 {
 	outputQueue.Clear();
 }
+template <class InputType, class OutputType>
+bool ThreadPool<InputType, OutputType>::IsWorking(void)
+{
+	bool isWorking;
+//	workingThreadCountMutex.Lock();
+//	isWorking=numThreadsWorking!=0;
+//	workingThreadCountMutex.Unlock();
 
+//	if (isWorking)
+//		return true;
+
+	// Bug fix: Originally the order of these two was reversed.
+	// It's possible with the thread timing that working could have been false, then it picks up the data in the other thread, then it checks
+	// here and sees there is no data.  So it thinks the thread is not working when it was.
+	if (HasOutputFast() && HasOutput())
+		return true;
+
+	if (HasInputFast() && HasInput())
+		return true;
+
+	// Need to check is working again, in case the thread was between the first and second checks
+	workingThreadCountMutex.Lock();
+	isWorking=numThreadsWorking!=0;
+	workingThreadCountMutex.Unlock();
+
+	return isWorking;
+}
+
+template <class InputType, class OutputType>
+int ThreadPool<InputType, OutputType>::NumThreadsWorking(void)
+{
+	return numThreadsWorking;
+}
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 #endif
+

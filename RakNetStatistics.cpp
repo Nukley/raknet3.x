@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -21,7 +21,7 @@
 
 // Verbosity level currently supports 0 (low), 1 (medium), 2 (high)
 // Buffer must be hold enough to hold the output string.  See the source to get an idea of how many bytes will be output
-void StatisticsToString( RakNetStatisticsStruct *s, char *buffer, int verbosityLevel )
+void RAK_DLL_EXPORT StatisticsToString( RakNetStatistics *s, char *buffer, int verbosityLevel )
 {
 	if ( s == 0 )
 	{
@@ -68,7 +68,8 @@ void StatisticsToString( RakNetStatisticsStruct *s, char *buffer, int verbosityL
 			"Duplicate acks received: %u\n"
 			"Inst. KBits per second: %.1f\n"
 			"KBits per second sent:\t\t\t%.1f\n"
-			"KBits per second received:\t\t%.1f\n",
+			"KBits per second received:\t\t%.1f\n"
+			"Bandwith exceeded:\t\t\t%i\n",
 			s->messageSendBuffer[ SYSTEM_PRIORITY ] + s->messageSendBuffer[ HIGH_PRIORITY ] + s->messageSendBuffer[ MEDIUM_PRIORITY ] + s->messageSendBuffer[ LOW_PRIORITY ],
 			s->messagesSent[ SYSTEM_PRIORITY ] + s->messagesSent[ HIGH_PRIORITY ] + s->messagesSent[ MEDIUM_PRIORITY ] + s->messagesSent[ LOW_PRIORITY ],
 			BITS_TO_BYTES( s->totalBitsSent ),
@@ -84,7 +85,8 @@ void StatisticsToString( RakNetStatisticsStruct *s, char *buffer, int verbosityL
 			s->duplicateAcknowlegementsReceived,
 			s->bitsPerSecond  / 1000.0,
 			bpsSent / 1000.0,
-			bpsReceived / 1000.0);
+			bpsReceived / 1000.0,
+			s->bandwidthExceeded);
 	}
 	else
 	{
@@ -133,7 +135,8 @@ void StatisticsToString( RakNetStatisticsStruct *s, char *buffer, int verbosityL
 			"Inst KBits per second:\t\t\t%.1f\n"
 			"Elapsed time (sec):\t\t\t%.1f\n"
 			"KBits per second sent:\t\t\t%.1f\n"
-			"KBits per second received:\t\t%.1f\n",
+			"KBits per second received:\t\t%.1f\n"
+			"Bandwith exceeded:\t\t\t%i\n",
 			BITS_TO_BYTES( s->totalBitsSent ),
 			s->messageSendBuffer[ SYSTEM_PRIORITY ], s->messageSendBuffer[ HIGH_PRIORITY ], s->messageSendBuffer[ MEDIUM_PRIORITY ], s->messageSendBuffer[ LOW_PRIORITY ],
 			s->messagesSent[ SYSTEM_PRIORITY ], s->messagesSent[ HIGH_PRIORITY ], s->messagesSent[ MEDIUM_PRIORITY ], s->messagesSent[ LOW_PRIORITY ],
@@ -169,7 +172,8 @@ void StatisticsToString( RakNetStatisticsStruct *s, char *buffer, int verbosityL
 			s->bitsPerSecond/1000.0,
 			elapsedTime,
 			bpsSent / 1000.0,
-			bpsReceived / 1000.0
+			bpsReceived / 1000.0,
+			s->bandwidthExceeded
 			);
 	}
 }

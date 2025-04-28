@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -33,7 +33,7 @@ void RPCMap::Clear(void)
 		node=rpcSet[i];
 		if (node)
 		{
-			delete [] node->uniqueIdentifier;
+			rakFree(node->uniqueIdentifier);
 			delete node;
 		}
 	}
@@ -45,7 +45,7 @@ RPCNode *RPCMap::GetNodeFromIndex(RPCIndex index)
 		return rpcSet[(unsigned)index];
 	return 0;
 }
-RPCNode *RPCMap::GetNodeFromFunctionName(char *uniqueIdentifier)
+RPCNode *RPCMap::GetNodeFromFunctionName(const char *uniqueIdentifier)
 {
 	unsigned index;
 	index=(unsigned)GetIndexFromFunctionName(uniqueIdentifier);
@@ -53,7 +53,7 @@ RPCNode *RPCMap::GetNodeFromFunctionName(char *uniqueIdentifier)
 		return rpcSet[index];
 	return 0;
 }
-RPCIndex RPCMap::GetIndexFromFunctionName(char *uniqueIdentifier)
+RPCIndex RPCMap::GetIndexFromFunctionName(const char *uniqueIdentifier)
 {
 	unsigned index;
 	for (index=0; index < rpcSet.Size(); index++)
@@ -63,7 +63,7 @@ RPCIndex RPCMap::GetIndexFromFunctionName(char *uniqueIdentifier)
 }
 
 // Called from the user thread for the local system
-void RPCMap::AddIdentifierWithFunction(char *uniqueIdentifier, void *functionPointer, bool isPointerToMember)
+void RPCMap::AddIdentifierWithFunction(const char *uniqueIdentifier, void *functionPointer, bool isPointerToMember)
 {
 #ifdef _DEBUG
 	assert(rpcSet.Size()+1 < MAX_RPC_MAP_SIZE); // If this hits change the typedef of RPCIndex to use an unsigned short
@@ -86,7 +86,7 @@ void RPCMap::AddIdentifierWithFunction(char *uniqueIdentifier, void *functionPoi
 	}
 
 	node = new RPCNode;
-	node->uniqueIdentifier = new char [strlen(uniqueIdentifier)+1];
+	node->uniqueIdentifier = (char*) rakMalloc( strlen(uniqueIdentifier)+1 );
 	strcpy(node->uniqueIdentifier, uniqueIdentifier);
 	node->functionPointer=functionPointer;
 	node->isPointerToMember=isPointerToMember;
@@ -104,7 +104,7 @@ void RPCMap::AddIdentifierWithFunction(char *uniqueIdentifier, void *functionPoi
 	rpcSet.Insert(node); // No empty spots available so just add to the end of the list
 
 }
-void RPCMap::AddIdentifierAtIndex(char *uniqueIdentifier, RPCIndex insertionIndex)
+void RPCMap::AddIdentifierAtIndex(const char *uniqueIdentifier, RPCIndex insertionIndex)
 {
 #ifdef _DEBUG
 	assert(uniqueIdentifier && uniqueIdentifier[0]);
@@ -123,12 +123,12 @@ void RPCMap::AddIdentifierAtIndex(char *uniqueIdentifier, RPCIndex insertionInde
 		// Delete the existing one
 		oldNode=rpcSet[existingNodeIndex];
 		rpcSet[existingNodeIndex]=0;
-		delete [] oldNode->uniqueIdentifier;
+		rakFree(oldNode->uniqueIdentifier);
 		delete oldNode;
 	}
 
 	node = new RPCNode;
-	node->uniqueIdentifier = new char [strlen(uniqueIdentifier)+1];
+	node->uniqueIdentifier = (char*) rakMalloc( strlen(uniqueIdentifier)+1 );
 	strcpy(node->uniqueIdentifier, uniqueIdentifier);
 	node->functionPointer=0;
 
@@ -151,7 +151,7 @@ void RPCMap::AddIdentifierAtIndex(char *uniqueIdentifier, RPCIndex insertionInde
 	}
 }
 
-void RPCMap::RemoveNode(char *uniqueIdentifier)
+void RPCMap::RemoveNode(const char *uniqueIdentifier)
 {
 	unsigned index;
 	index=GetIndexFromFunctionName(uniqueIdentifier);
@@ -160,7 +160,7 @@ void RPCMap::RemoveNode(char *uniqueIdentifier)
 	#endif
 	RPCNode *node;
 	node = rpcSet[index];
-	delete [] node->uniqueIdentifier;
+	rakFree(node->uniqueIdentifier);
 	delete node;
 	rpcSet[index]=0;
 }

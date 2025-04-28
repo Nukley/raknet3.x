@@ -24,14 +24,14 @@ Router::Router()
 Router::~Router()
 {
 }
-void Router::SetRestrictRoutingByType(bool restrict)
+void Router::SetRestrictRoutingByType(bool restrict__)
 {
-	restrictByType=restrict;
+	restrictByType=restrict__;
 }
 void Router::AddAllowedType(unsigned char messageId)
 {
 	if (allowedTypes.HasData(messageId)==false)
-		allowedTypes.Insert(messageId,messageId);
+		allowedTypes.Insert(messageId,messageId, true);
 }
 void Router::RemoveAllowedType(unsigned char messageId)
 {
@@ -168,6 +168,7 @@ PluginReceiveResult Router::OnReceive(RakPeerInterface *peer, Packet *packet)
 			incomingBitstream.Read(timestamp);
 			out.Write((MessageID)ID_TIMESTAMP);
 			out.Write(timestamp);
+			incomingBitstream.IgnoreBits(8);
 		}
 
 		// Read the send parameters
@@ -272,7 +273,7 @@ PluginReceiveResult Router::OnReceive(RakPeerInterface *peer, Packet *packet)
 			if (packet->data[0]==ID_TIMESTAMP )
 			{
 				memcpy( packet->data + sizeof(RakNetTime)+sizeof(unsigned char), out.GetData()+payloadWriteByteOffset, BITS_TO_BYTES(payloadBitLength) );
-				packet->bitSize=sizeof(RakNetTime)+sizeof(unsigned char)+payloadBitLength;
+				packet->bitSize=BYTES_TO_BITS(sizeof(RakNetTime)+sizeof(unsigned char))+payloadBitLength;
 			}
 			else
 			{

@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -20,14 +20,15 @@
 
 #include "RakNetTypes.h"
 #include "Export.h"
+#include "RakMemoryOverride.h"
 
-#define REMOTE_MAX_TEXT_INPUT 512
+#define REMOTE_MAX_TEXT_INPUT 2048
 
 class CommandParserInterface;
 
 /// \brief Defines an interface that is used to send and receive null-terminated strings.
 /// In practice this is only used by the CommandParser system for for servers.
-class RAK_DLL_EXPORT TransportInterface
+class RAK_DLL_EXPORT TransportInterface : public RakNet::RakMemoryOverride
 {
 public:
 	/// Start the transport provider on the indicated port.

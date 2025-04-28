@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -26,7 +26,7 @@
 /// \brief Network Statisics Usage 
 ///
 /// Store Statistics information related to network usage 
-struct RAK_DLL_EXPORT RakNetStatisticsStruct
+struct RAK_DLL_EXPORT RakNetStatistics
 {
 	///  Number of Messages in the send Buffer (high, medium, low priority)
 	unsigned messageSendBuffer[ NUMBER_OF_PRIORITIES ];
@@ -109,8 +109,12 @@ struct RAK_DLL_EXPORT RakNetStatisticsStruct
 	double bitsPerSecond;
 	///  connection start time
 	RakNetTime connectionStartTime;
+	// If true, not all the data can go out in one frame, and RakNet is sending continuously
+	// RakNet will try to increase the bandwidth, so this condition may be temporary and only last a second.  However, it if
+	// stays on most of the time, you are at the maximum bandwidth and should slow down your sends, because other data is now waiting.
+	bool bandwidthExceeded;
 
-	RakNetStatisticsStruct operator +=(const RakNetStatisticsStruct& other)
+	RakNetStatistics operator +=(const RakNetStatistics& other)
 	{
 		unsigned i;
 		for (i=0; i < NUMBER_OF_PRIORITIES; i++)
@@ -163,6 +167,6 @@ struct RAK_DLL_EXPORT RakNetStatisticsStruct
 /// 0 low
 /// 1 medium 
 /// 2 high 
-void StatisticsToString( RakNetStatisticsStruct *s, char *buffer, int verbosityLevel );
+void RAK_DLL_EXPORT StatisticsToString( RakNetStatistics *s, char *buffer, int verbosityLevel );
 
 #endif

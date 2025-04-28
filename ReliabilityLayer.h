@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,6 +18,7 @@
 #ifndef __RELIABILITY_LAYER_H
 #define __RELIABILITY_LAYER_H
 
+#include "RakMemoryOverride.h"
 #include "MTUSize.h"
 #include "DS_LinkedList.h"
 #include "DS_List.h"
@@ -26,13 +27,13 @@
 #include "DS_Queue.h"
 #include "BitStream.h"
 #include "InternalPacket.h"
-#include "InternalPacketPool.h"
 #include "DataBlockEncryptor.h"
 #include "RakNetStatistics.h"
 #include "SHA1.h"
 #include "DS_OrderedList.h"
 #include "DS_RangeList.h"
 #include "DS_BPlusTree.h"
+#include "DS_MemoryPool.h"
 
 class PluginInterface;
 
@@ -47,7 +48,7 @@ class PluginInterface;
 #include "BitStream.h"
 
 int SplitPacketIndexComp( SplitPacketIndexType const &key, InternalPacket* const &data );
-struct SplitPacketChannel
+struct SplitPacketChannel : public RakNet::RakMemoryOverride//<SplitPacketChannel>
 {
 	RakNetTimeNS lastUpdateTime;
 	DataStructures::OrderedList<SplitPacketIndexType, InternalPacket*, SplitPacketIndexComp> splitPacketList;
@@ -55,7 +56,7 @@ struct SplitPacketChannel
 int RAK_DLL_EXPORT SplitPacketChannelComp( SplitPacketIdType const &key, SplitPacketChannel* const &data );
 
 /// Datagram reliable, ordered, unordered and sequenced sends.  Flow control.  Message splitting, reassembly, and coalescence.
-class ReliabilityLayer
+class ReliabilityLayer : public RakNet::RakMemoryOverride//<ReliabilityLayer>
 {
 public:
 
@@ -114,8 +115,9 @@ public:
 	/// \param[in] systemAddress The Unique Player Identifier who shouldhave sent some packets
 	/// \param[in] MTUSize maximum datagram size
 	/// \param[in] time current system time
+	/// \param[in] maxBitsPerSecond if non-zero, enforces that outgoing bandwidth does not exceed this amount
 	/// \param[in] messageHandlerList A list of registered plugins
-	void Update(  SOCKET s, SystemAddress systemAddress, int MTUSize, RakNetTimeNS time, DataStructures::List<PluginInterface*> &messageHandlerList );
+	void Update(  SOCKET s, SystemAddress systemAddress, int MTUSize, RakNetTimeNS time, unsigned maxBitsPerSecond, DataStructures::List<PluginInterface*> &messageHandlerList );
 
 	/// If Read returns -1 and this returns true then a modified packetwas detected
 	/// \return true when a modified packet is detected
@@ -128,16 +130,13 @@ public:
 	/// Causes IsDeadConnection to return true
 	void KillConnection(void);
 
-	/// Sets the ping, which is used by the reliability layer to determine how long to wait for resends.  Mostly for flow control.
-	/// \param[in] The ping time.
-	void SetPing( RakNetTime i );
-
 	/// Get Statistics
 	/// \return A pointer to a static struct, filled out with current statistical information.
-	RakNetStatisticsStruct * const GetStatistics( void );
+	RakNetStatistics * const GetStatistics( void );
 
 	///Are we waiting for any data to be sent out or be processed by the player?
-	bool IsDataWaiting(void);
+	bool IsOutgoingDataWaiting(void);
+	bool IsReliableOutgoingDataWaiting(void);
 	bool AreAcksWaiting(void);
 
 	// Set outgoing lag and packet loss properties
@@ -149,6 +148,16 @@ public:
 
 	void SetSplitMessageProgressInterval(int interval);
 	void SetUnreliableTimeout(RakNetTime timeoutMS);
+	/// Has a lot of time passed since the last ack
+	bool AckTimeout(RakNetTimeNS curTime);
+	RakNetTimeNS GetNextSendTime(void) const;
+	RakNetTimeNS GetTimeBetweenPackets(void) const;
+	RakNetTimeNS GetLastTimeBetweenPacketsDecrease(void) const;
+	RakNetTimeNS GetLastTimeBetweenPacketsIncrease(void) const;
+	RakNetTimeNS GetAckPing(void) const;
+
+	// If true, will update time between packets quickly based on ping calculations
+	//void SetDoFastThroughputReactions(bool fast);
 
 private:
 
@@ -159,8 +168,8 @@ private:
 	/// \param[in] time Current time
 	/// \param[in] systemAddress Who we are sending to
 	/// \param[in] messageHandlerList A list of registered plugins
-	/// \return The number of messages sent
-	unsigned GenerateDatagram( RakNet::BitStream *output, int MTUSize, bool *reliableDataSent, RakNetTimeNS time, SystemAddress systemAddress, DataStructures::List<PluginInterface*> &messageHandlerList );
+	/// \return If any data was sent
+	bool GenerateDatagram( RakNet::BitStream *output, int MTUSize, bool *reliableDataSent, RakNetTimeNS time, SystemAddress systemAddress, bool *hitMTUCap, DataStructures::List<PluginInterface*> &messageHandlerList );
 
 	/// Send the contents of a bitstream to the socket
 	/// \param[in] s The socket used for sending data
@@ -169,7 +178,7 @@ private:
 	void SendBitStream( SOCKET s, SystemAddress systemAddress, RakNet::BitStream *bitStream );
 
 	///Parse an internalPacket and create a bitstream to represent this dataReturns number of bits used
-	int WriteToBitStreamFromInternalPacket( RakNet::BitStream *bitStream, const InternalPacket *const internalPacket );
+	int WriteToBitStreamFromInternalPacket( RakNet::BitStream *bitStream, const InternalPacket *const internalPacket, RakNetTimeNS curTime );
 
 	/// Parse a bitstream and create an internal packet to represent this data
 	InternalPacket* CreateInternalPacketFromBitStream( RakNet::BitStream *bitStream, RakNetTimeNS time );
@@ -264,39 +273,42 @@ private:
 
 	void CalculateHistogramAckSize(void);
 
+	// Used ONLY for RELIABLE_ORDERED
+	// RELIABLE_SEQUENCED just returns the newest one
 	DataStructures::List<DataStructures::LinkedList<InternalPacket*>*> orderingList;
 	DataStructures::Queue<InternalPacket*> outputQueue;
 	DataStructures::RangeList<MessageNumberType> acknowlegements;
-	RakNetTimeNS nextAckTime;
 	int splitMessageProgressInterval;
 	RakNetTimeNS unreliableTimeout;
 	
+	// Resend list is a tree of packets we need to resend
 	DataStructures::BPlusTree<MessageNumberType, InternalPacket*, RESEND_TREE_ORDER> resendList;
+	// resend Queue holds the same pointers, but in order of when to send them.  nextActionTime is set to 0 when the packet is no longer needed.
 	DataStructures::Queue<InternalPacket*> resendQueue;
 	
 	DataStructures::Queue<InternalPacket*> sendPacketSet[ NUMBER_OF_PRIORITIES ];
     DataStructures::OrderedList<SplitPacketIdType, SplitPacketChannel*, SplitPacketChannelComp> splitPacketChannelList;
-	MessageNumberType messageNumber;
+	MessageNumberType sendMessageNumberIndex;
 	//unsigned int windowSize;
 	RakNetTimeNS lastAckTime;
 	RakNet::BitStream updateBitStream;
 	OrderingIndexType waitingForOrderedPacketWriteIndex[ NUMBER_OF_ORDERED_STREAMS ], waitingForSequencedPacketWriteIndex[ NUMBER_OF_ORDERED_STREAMS ];
-	// Used for flow control (changed to regular TCP sliding window)
-	// unsigned int maximumWindowSize, bytesSentSinceAck;
-	// unsigned int outputWindowFullTime; // under linux if this last variable is on the line above it the delete operator crashes deleting this class!
-
+	
 	// STUFF TO NOT MUTEX HERE (called from non-conflicting threads, or value is not important)
 	OrderingIndexType waitingForOrderedPacketReadIndex[ NUMBER_OF_ORDERED_STREAMS ], waitingForSequencedPacketReadIndex[ NUMBER_OF_ORDERED_STREAMS ];
 	bool deadConnection, cheater;
 	// unsigned int lastPacketSendTime,retransmittedFrames, sentPackets, sentFrames, receivedPacketsCount, bytesSent, bytesReceived,lastPacketReceivedTime;
-	RakNetTime ping;
 	SplitPacketIdType splitPacketId;
 	RakNetTime timeoutTime; // How long to wait in MS before timing someone out
 	//int MAX_AVERAGE_PACKETS_PER_SECOND; // Name says it all
 //	int RECEIVED_PACKET_LOG_LENGTH, requestedReceivedPacketLogLength; // How big the receivedPackets array is
 //	unsigned int *receivedPackets;
 	unsigned int blockWindowIncreaseUntilTime;
-	RakNetStatisticsStruct statistics;
+	RakNetStatistics statistics;
+
+	RakNetTimeNS histogramStart;
+	unsigned histogramBitsSent;
+
 
 	/// Memory-efficient receivedPackets algorithm:
 	/// receivedPacketsBaseIndex is the packet number we are expecting
@@ -311,24 +323,36 @@ private:
 	bool resetReceivedPackets;
 
 	RakNetTimeNS lastUpdateTime;
-
-	RakNetTimeNS histogramEndTime, histogramStartTime;
-	unsigned histogramReceiveMarker;
-	int noPacketlossIncreaseCount;
-	unsigned histogramPlossCount, histogramAckCount;
-	double lowBandwidth, highBandwidth, currentBandwidth; // In bits per second
-	double availableBandwidth;
+	RakNetTimeNS timeBetweenPackets, nextSendTime, ackPing;
+	RakNetTimeNS ackPingSamples[256]; // Must be range of unsigned char to wrap ackPingIndex properly
+	RakNetTimeNS ackPingSum;
+	unsigned char ackPingIndex;
+	//RakNetTimeNS nextLowestPingReset;
+	RemoteSystemTimeType remoteSystemTime;
 	bool continuousSend;
+	RakNetTimeNS lastTimeBetweenPacketsIncrease,lastTimeBetweenPacketsDecrease;
+	// Limit changes in throughput to once per ping - otherwise even if lag starts we don't know about it
+	// In the meantime the connection is flooded and overrun.
+	RakNetTimeNS nextAllowedThroughputSample;
+
+	// If Update::maxBitsPerSecond > 0, then throughputCapCountdown is used as a timer to prevent sends for some amount of time after each send, depending on
+	// the amount of data sent
+	long long throughputCapCountdown;
 
 	DataBlockEncryptor encryptor;
 	unsigned sendPacketCount, receivePacketCount;
-	RakNetTimeNS ackTimeIncrement;
 
 	///This variable is so that free memory can be called by only the update thread so we don't have to mutex things so much
 	bool freeThreadedMemoryOnNextUpdate;
 
+	// If we backoff due to packetloss, don't remeasure until all waiting resends have gone out or else we overcount
+	bool packetlossThisSample, backoffThisSample;
+	unsigned packetlossThisSampleResendCount;
+
+	//long double timeBetweenPacketsIncreaseMultiplier, timeBetweenPacketsDecreaseMultiplier;
+
 #ifndef _RELEASE
-	struct DataAndTime
+	struct DataAndTime : public RakNet::RakMemoryOverride//<InternalPacket>
 	{
 		char data[ MAXIMUM_MTU_SIZE ];
 		int length;
@@ -342,7 +366,7 @@ private:
 #endif
 
 	// This has to be a member because it's not threadsafe when I removed the mutexes
-	InternalPacketPool internalPacketPool;
+	DataStructures::MemoryPool<InternalPacket> internalPacketPool;
 };
 
 #endif

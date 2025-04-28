@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -20,6 +20,7 @@
 
 #include "DS_LinkedList.h" 
 #include "Export.h"
+#include "RakMemoryOverride.h"
 
 /// The namespace DataStructures was only added to avoid compiler errors for commonly named data structures
 /// As these data structures are stand-alone, you can use them outside of RakNet for your own projects if you wish.
@@ -27,7 +28,7 @@ namespace DataStructures
 {
 	/// \brief A queue implemented using a linked list.  Rarely used.
 	template <class QueueType>
-	class RAK_DLL_EXPORT QueueLinkedList
+	class RAK_DLL_EXPORT QueueLinkedList : public RakNet::RakMemoryOverride
 	{
 	
 	public:

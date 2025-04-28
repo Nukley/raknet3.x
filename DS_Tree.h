@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -21,13 +21,14 @@
 #include "Export.h"
 #include "DS_List.h"
 #include "DS_Queue.h"
+#include "RakMemoryOverride.h"
 
 /// The namespace DataStructures was only added to avoid compiler errors for commonly named data structures
 /// As these data structures are stand-alone, you can use them outside of RakNet for your own projects if you wish.
 namespace DataStructures
 {
 	template <class TreeType>
-	class RAK_DLL_EXPORT Tree
+	class RAK_DLL_EXPORT Tree : public RakNet::RakMemoryOverride
 	{
 	public:
 		Tree();

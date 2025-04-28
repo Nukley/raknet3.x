@@ -14,5 +14,21 @@
 /// Enabled by default.
 #define __BITSTREAM_NATIVE_END
 
+#if defined(_CONSOLE_2)
+#undef __BITSTREAM_NATIVE_END
+#endif
+
 /// Maximum (stack) size to use with _alloca before using new and delete instead.
 #define MAX_ALLOCA_STACK_ALLOCATION 1048576
+
+// Use WaitForSingleObject instead of sleep.
+// Defining it plays nicer with other systems, and uses less CPU, but gives worse RakNet performance
+// Undefining it uses more CPU time, but is more responsive and faster.
+#define USE_WAIT_FOR_MULTIPLE_EVENTS
+
+/// Uncomment to use RakMemoryOverride for custom memory tracking
+// #define _USE_RAK_MEMORY_OVERRIDE
+
+/// If defined, RakNet will automatically try to determine available bandwidth and buffer accordingly (recommended)
+/// If commented out, you will probably not be able to send large files and will get increased packetloss. However, responsiveness for the first 10 seconds or so will be improved.
+#define _ENABLE_FLOW_CONTROL

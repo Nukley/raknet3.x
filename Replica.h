@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,7 +18,7 @@
 #ifndef __REPLICA_H
 #define __REPLICA_H
 
-#include "NetworkIDGenerator.h"
+#include "NetworkIDObject.h"
 #include "PacketPriority.h"
 #include "ReplicaEnums.h"
 
@@ -26,9 +26,10 @@
 /// You should derive from this class, implementing the functions to provide the behavior you want.
 /// If your architecture doesn't allow you to derive from this class, you can store an instance of a derived instance of this class in your base game object.
 /// In that case, use GetParent() and SetParent() and propagate the function calls up to your real classes. For an example where I do this, see Monster.h in the ReplicaManagerCS sample.
+/// \note All send functions are called one for every target recipient, so you can customize the data sent per-user.
 /// \brief The interface to derive your game's networked classes from
 /// \ingroup REPLICA_MANAGER_GROUP
-class Replica : public NetworkIDGenerator
+class Replica : public NetworkIDObject
 {
 public:
 	/// This function is called in the first update tick after this object is first passed to ReplicaManager::Replicate for each player, and also when a new participant joins
@@ -39,10 +40,11 @@ public:
 	/// \note SendConstruction is called once for every new player that connects and every existing player when an object is passed to Replicate.
 	/// \param[in] currentTime The current time that would be returned by RakNet::GetTime().  That's a slow call I do already, so you can use the parameter instead of having to call it yourself.
 	/// \param[in] systemAddress The participant to send to.
+	/// \param[in,out] flags Per-object per-system serialization flags modified by this function, ReplicaManager::SignalSerializationFlags, and ReplicaManager::AccessSerializationFlags.  Useful for simple customization of what you serialize based on application events.  This value is not automatically reset.
 	/// \param[out] outBitStream The data you want to write in the message. If you do not write to outBitStream and return true, then no send call will occur and the system will consider this object as not created on that remote system.
 	/// \param[out] includeTimestamp Set to true to include a timestamp with the message.  This will be reflected in the timestamp parameter of the callback.  Defaults to false.
 	/// \return See ReplicaReturnResult
-	virtual ReplicaReturnResult SendConstruction( RakNetTime currentTime, SystemAddress systemAddress, RakNet::BitStream *outBitStream, bool *includeTimestamp )=0;
+	virtual ReplicaReturnResult SendConstruction( RakNetTime currentTime, SystemAddress systemAddress, unsigned int &flags, RakNet::BitStream *outBitStream, bool *includeTimestamp )=0;
 
 	/// The purpose of the function is to send a packet containing the data in \a outBitStream to \a systemAddress telling that system that Dereplicate was called.
 	/// In the code, this is called in the update cycle after you call ReplicaManager::Destruct().  Then, if you write to outBitStream, a message is sent to that participant.
@@ -50,13 +52,14 @@ public:
 	/// \param[out] outBitStream The data to send.  If you do not write to outBitStream, then no send call will occur
 	/// \param[in] systemAddress The participant to send to.
 	/// \param[out] includeTimestamp Set to true to include a timestamp with the message.  This will be reflected in the timestamp parameter of the callback.  Defaults to false.
-	virtual void SendDestruction(RakNet::BitStream *outBitStream, SystemAddress systemAddress, bool *includeTimestamp )=0;
+	/// \return See ReplicaReturnResult
+	virtual ReplicaReturnResult SendDestruction(RakNet::BitStream *outBitStream, SystemAddress systemAddress, bool *includeTimestamp )=0;
 
 	/// This function is called when SendDestruction is sent from another system.  Delete your object if you want.
 	/// \param[in] inBitStream What was sent in SendDestruction::outBitStream
 	/// \param[in] systemAddress The participant that sent this message to us.
 	/// \param[in] timestamp if Serialize::SendDestruction was set to true, the time the packet was sent.
-	/// \return See ReplicaReturnResult
+	/// \return See ReplicaReturnResult.  Only REPLICA_PROCESSING_DONE is valid, and will send the destruction message.  Anything else will not send any messages.
 	virtual ReplicaReturnResult ReceiveDestruction(RakNet::BitStream *inBitStream, SystemAddress systemAddress, RakNetTime timestamp)=0;
 
 	/// Called when ReplicaManager::SetScope is called with a different value than what it currently has.
@@ -98,6 +101,14 @@ public:
 	/// \param[in] lastDeserializeTime Last time you returned true from this function for this object, or 0 if never, regardless of \a systemAddress.
 	/// \param[in] systemAddress The participant that sent this message to us.
 	virtual ReplicaReturnResult Deserialize(RakNet::BitStream *inBitStream, RakNetTime timestamp, RakNetTime lastDeserializeTime, SystemAddress systemAddress )=0;
+
+	/// Used to sort the order that commands (construct, serialize) take place in.
+	/// Lower sort priority commands happen before higher sort priority commands.
+	/// Same sort priority commands take place in random order.
+	/// For example, if both players and player lists are replicas, you would want to create the players before the player lists if the player lists refer to the players.
+	/// So you could specify the players as priority 0, and the lists as priority 1, and the players would be created and serialized first
+	/// \return A higher value to process later, a lower value to process sooner, the same value to process in random order.
+	virtual int GetSortPriority(void) const=0;
 };
 
 #endif

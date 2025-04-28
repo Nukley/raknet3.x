@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -20,11 +20,16 @@
 
 #include "Export.h"
 #include "DS_Map.h"
+#include "RakMemoryOverride.h"
+
+
+//#include <string>
 
 /// Forward declaration
 namespace RakNet
 {
 	class BitStream;
+	class RakString;
 };
 
 class HuffmanEncodingTree;
@@ -33,7 +38,7 @@ class HuffmanEncodingTree;
 ///
 /// Only works with ASCII strings.  The default compression is for English.
 /// You can call GenerateTreeFromStrings to compress and decompress other languages efficiently as well.
-class RAK_DLL_EXPORT StringCompressor
+class RAK_DLL_EXPORT StringCompressor : public RakNet::RakMemoryOverride
 {
 public:
 	
@@ -65,6 +70,19 @@ public:
 	/// \param[in] input The bitstream containing the compressed string
 	/// \param[in] languageID Which language to use
 	bool DecodeString( char *output, int maxCharsToWrite, RakNet::BitStream *input, int languageID=0 );
+
+#ifdef _CSTRING_COMPRESSOR
+	void EncodeString( const CString &input, int maxCharsToWrite, RakNet::BitStream *output, int languageID=0 );
+	bool DecodeString( CString &output, int maxCharsToWrite, RakNet::BitStream *input, int languageID=0 );
+#endif
+
+#ifdef _STD_STRING_COMPRESSOR
+	void EncodeString( const std::string &input, int maxCharsToWrite, RakNet::BitStream *output, int languageID=0 );
+	bool DecodeString( std::string *output, int maxCharsToWrite, RakNet::BitStream *input, int languageID=0 );
+#endif
+
+	void EncodeString( const RakNet::RakString *input, int maxCharsToWrite, RakNet::BitStream *output, int languageID=0 );
+	bool DecodeString( RakNet::RakString *output, int maxCharsToWrite, RakNet::BitStream *input, int languageID=0 );
 
 	/// Used so I can allocate and deallocate this singleton at runtime
 	static void AddReference(void);

@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -31,7 +31,7 @@ namespace RakNet
 #define BITS_TO_BYTES(x) (((x)+7)>>3)
 #define BYTES_TO_BITS(x) ((x)<<3)
 
-/// \sa NetworkIDGenerator.h
+/// \sa NetworkIDObject.h
 typedef unsigned char UniqueIDType;
 typedef unsigned short SystemIndex;
 typedef unsigned char RPCIndex;
@@ -44,11 +44,17 @@ typedef unsigned char MessageID;
 // Define __GET_TIME_64BIT if you want to use large types for GetTime (takes more bandwidth when you transmit time though!)
 // You would want to do this if your system is going to run long enough to overflow the millisecond counter (over a month)
 #ifdef __GET_TIME_64BIT
-typedef long long RakNetTime;
-typedef long long RakNetTimeNS;
+typedef unsigned long long RakNetTime;
+typedef unsigned long long RakNetTimeNS;
 #else
 typedef unsigned int RakNetTime;
-typedef long long RakNetTimeNS;
+typedef unsigned long long RakNetTimeNS;
+#endif
+
+#if defined(_MSC_VER) && _MSC_VER > 0
+#define PRINTF_TIME_MODIFIER "I64"
+#else
+#define PRINTF_TIME_MODIFIER "ll"
 #endif
 
 /// Describes the local socket to use for RakPeer::Startup
@@ -146,6 +152,7 @@ struct Packet
 class RakPeerInterface;
 
 /// All RPC functions have the same parameter list - this structure.
+/// \depreciated Use the AutoRPC plugin instead
 struct RPCParameters
 {
 	/// The data from the remote system
@@ -221,6 +228,7 @@ const int PING_TIMES_ARRAY_SIZE = 5;
 
 /// \def REGISTER_STATIC_RPC
 /// \ingroup RAKNET_RPC
+/// \depreciated Use the AutoRPC plugin instead
 /// Register a C function as a Remote procedure.
 /// \param[in] networkObject Your instance of RakPeer, RakPeer, or RakPeer
 /// \param[in] functionName The name of the C function to call
@@ -231,9 +239,11 @@ const int PING_TIMES_ARRAY_SIZE = 5;
 
 /// \def CLASS_MEMBER_ID
 /// \ingroup RAKNET_RPC
+/// \depreciated Use the AutoRPC plugin instead
 /// \brief Concatenate two strings
 
 /// \def REGISTER_CLASS_MEMBER_RPC
+/// \depreciated Use the AutoRPC plugin instead
 /// \ingroup RAKNET_RPC
 /// \brief Register a member function of an instantiated object as a Remote procedure call.
 /// RPC member Functions MUST be marked __cdecl!
@@ -247,11 +257,12 @@ const int PING_TIMES_ARRAY_SIZE = 5;
 #define REGISTER_CLASS_MEMBER_RPC(networkObject, className, functionName) {union {void (__cdecl className::*cFunc)( RPCParameters *rpcParms ); void* voidFunc;}; cFunc=&className::functionName; networkObject->RegisterClassMemberRPC(CLASS_MEMBER_ID(className, functionName),voidFunc);}
 
 /// \def UNREGISTER_AS_REMOTE_PROCEDURE_CALL
-/// \depreciated
 /// \brief Only calls UNREGISTER_STATIC_RPC
+/// \depreciated Use the AutoRPC plugin instead
 
 /// \def UNREGISTER_STATIC_RPC
 /// \ingroup RAKNET_RPC
+/// \depreciated Use the AutoRPC plugin instead
 /// Unregisters a remote procedure call
 /// RPC member Functions MUST be marked __cdecl!  See the ObjectMemberRPC example.
 /// \param[in] networkObject The object that manages the function
@@ -263,6 +274,7 @@ const int PING_TIMES_ARRAY_SIZE = 5;
 
 /// \def UNREGISTER_CLASS_INST_RPC
 /// \ingroup RAKNET_RPC
+/// \depreciated Use the AutoRPC plugin instead
 /// \brief Unregisters a member function of an instantiated object as a Remote procedure call.
 /// \param[in] networkObject The object that manages the function
 /// \param[in] className The className that was originally passed to REGISTER_AS_REMOTE_PROCEDURE_CALL
@@ -270,4 +282,3 @@ const int PING_TIMES_ARRAY_SIZE = 5;
 #define UNREGISTER_CLASS_MEMBER_RPC(networkObject, className, functionName) (networkObject)->UnregisterAsRemoteProcedureCall((#className "_" #functionName))
 
 #endif
-

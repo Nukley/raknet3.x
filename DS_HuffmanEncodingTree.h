@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,13 +18,14 @@
 #ifndef __HUFFMAN_ENCODING_TREE
 #define __HUFFMAN_ENCODING_TREE
 
+#include "RakMemoryOverride.h"
 #include "DS_HuffmanEncodingTreeNode.h"
 #include "BitStream.h"
 #include "Export.h"
 #include "DS_LinkedList.h" 
 
 /// This generates special cases of the huffman encoding tree using 8 bit keys with the additional condition that unused combinations of 8 bits are treated as a frequency of 1
-class RAK_DLL_EXPORT HuffmanEncodingTree
+class RAK_DLL_EXPORT HuffmanEncodingTree : public RakNet::RakMemoryOverride
 {
 
 public:

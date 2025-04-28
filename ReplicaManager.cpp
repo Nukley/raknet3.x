@@ -7,6 +7,8 @@
 #include <memory.h>
 #include <assert.h>
 #include <stdio.h> // For my debug printfs
+#include "RakAssert.h"
+#include "NetworkIDManager.h"
 
 #ifdef _MSC_VER
 #pragma warning( push )
@@ -14,27 +16,40 @@
 
 int ReplicaManager::CommandStructComp( Replica* const &key, const ReplicaManager::CommandStruct &data )
 {
-	if (key < data.replica)
+	if (key->GetSortPriority() < data.replica->GetSortPriority())
 		return -1;
-	if (key==data.replica)
+	else if (key->GetSortPriority() > data.replica->GetSortPriority())
+		return 1;
+	if (key->GetAllocationNumber() < data.replica->GetAllocationNumber())
+		return -1;
+	if (key->GetAllocationNumber()==data.replica->GetAllocationNumber())
 		return 0;
 	return 1;
 }
 
 int ReplicaManager::RegisteredReplicaComp( Replica* const &key, const ReplicaManager::RegisteredReplica &data )
 {
-	if (key < data.replica)
+	if (key->GetAllocationNumber() < data.replica->GetAllocationNumber())
 		return -1;
-	if (key==data.replica)
+	if (key->GetAllocationNumber()==data.replica->GetAllocationNumber())
+		return 0;
+	return 1;
+}
+
+int ReplicaManager::RegisteredReplicaRefOrderComp( const unsigned int &key, const ReplicaManager::RegisteredReplica &data )
+{
+	if (key < data.referenceOrder)
+		return -1;
+	if (key==data.referenceOrder)
 		return 0;
 	return 1;
 }
 
 int ReplicaManager::RemoteObjectComp( Replica* const &key, const ReplicaManager::RemoteObject &data )
 {
-	if (key < data.replica)
+	if (key->GetAllocationNumber() < data.replica->GetAllocationNumber())
 		return -1;
-	if (key==data.replica)
+	if (key->GetAllocationNumber()==data.replica->GetAllocationNumber())
 		return 0;
 	return 1;
 }
@@ -59,6 +74,10 @@ ReplicaManager::ReplicaManager()
 	defaultScope=false;
 	autoConstructToNewParticipants=false;
 	autoSerializeInScope=false;
+	nextReferenceIndex=0;
+#ifdef _DEBUG
+	inUpdate=false;
+#endif
 }
 ReplicaManager::~ReplicaManager()
 {
@@ -86,7 +105,33 @@ bool ReplicaManager::AddParticipant(SystemAddress systemAddress)
 	participantStruct->callDownloadCompleteCB=true;
 
     // Add the new participant to the list of participants
-	participantList.Insert(systemAddress,participantStruct);
+	participantList.Insert(systemAddress,participantStruct, true);
+
+	/*
+	if (autoConstructToNewParticipants)
+	{
+		// Signal that we need to call SendConstruction for each existing object to this participant
+		unsigned i;
+		CommandStruct replicaAndCommand;
+		replicaAndCommand.command=REPLICA_EXPLICIT_CONSTRUCTION;
+		if (defaultScope==true)
+			replicaAndCommand.command |= REPLICA_SCOPE_TRUE;
+		replicaAndCommand.userFlags=0;
+
+		// Auto replicate objects in the order they were originally referenced, rather than the random sorted order they are in now
+		// This way dependencies are created first.
+		DataStructures::OrderedList<unsigned int, RegisteredReplica, ReplicaManager::RegisteredReplicaRefOrderComp> sortByRefList;
+		for (i=0; i < replicatedObjects.Size(); i++)
+			sortByRefList.Insert(replicatedObjects[i].referenceOrder, replicatedObjects[i]);
+
+		for (i=0; i < sortByRefList.Size(); i++)
+		{
+			replicaAndCommand.replica=sortByRefList[i].replica;
+			participantStruct->commandList.Insert(replicaAndCommand.replica,replicaAndCommand);
+		}
+	}
+	*/
+
 
 	if (autoConstructToNewParticipants)
 	{
@@ -94,11 +139,13 @@ bool ReplicaManager::AddParticipant(SystemAddress systemAddress)
 		unsigned i;
 		CommandStruct replicaAndCommand;
 		replicaAndCommand.command=REPLICA_EXPLICIT_CONSTRUCTION;
+		if (defaultScope==true)
+			replicaAndCommand.command |= REPLICA_SCOPE_TRUE;
 		replicaAndCommand.userFlags=0;
 		for (i=0; i < replicatedObjects.Size(); i++)
 		{
 			replicaAndCommand.replica=replicatedObjects[i].replica;
-			participantStruct->commandList.Insert(replicaAndCommand.replica,replicaAndCommand);
+			participantStruct->commandList.Insert(replicaAndCommand);
 		}
 	}
 
@@ -145,7 +192,8 @@ void ReplicaManager::Construct(Replica *replica, bool isCopy, SystemAddress syst
 		{
 			if (participantStruct->remoteObjectList.HasData(replica)==false)
 			{
-				index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+				index = GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
+				// index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
 				if (objectExists)
 				{
 #ifdef _DEBUG
@@ -154,6 +202,9 @@ void ReplicaManager::Construct(Replica *replica, bool isCopy, SystemAddress syst
 #endif
 					participantStruct->commandList[index].command|=REPLICA_EXPLICIT_CONSTRUCTION; // Set this bit
 					participantStruct->commandList[index].command&=0xFF ^ REPLICA_IMPLICIT_CONSTRUCTION; // Unset this bit
+
+					if (defaultScope==true && (participantStruct->commandList[index].command & REPLICA_SCOPE_FALSE) == 0)
+						participantStruct->commandList[index].command |= REPLICA_SCOPE_TRUE;
 				}
 				else
 				{
@@ -162,11 +213,17 @@ void ReplicaManager::Construct(Replica *replica, bool isCopy, SystemAddress syst
 					else
 						replicaAndCommand.command=REPLICA_EXPLICIT_CONSTRUCTION; // Set this bit
 
-					participantStruct->commandList.Insert(replicaAndCommand.replica,replicaAndCommand);
+					if (defaultScope==true)
+						replicaAndCommand.command |= REPLICA_SCOPE_TRUE;
+
+					participantStruct->commandList.Insert(replicaAndCommand);
 				}
 			}
 		}
 	}
+
+	// Update immediately, otherwise if we take action on this object the first frame, the action packets will arrive before the object is created
+	Update(rakPeer);
 }
 void ReplicaManager::Destruct(Replica *replica, SystemAddress systemAddress, bool broadcast)
 {
@@ -192,43 +249,50 @@ void ReplicaManager::Destruct(Replica *replica, SystemAddress systemAddress, boo
 		if ((broadcast==true && systemAddress!=participantStruct->systemAddress) || 
 			(broadcast==false && systemAddress==participantStruct->systemAddress))
 		{
-			// Send the destruction packet immediately
-			if (replica->GetNetworkID()!=UNASSIGNED_NETWORK_ID && (replicatedObjects[replicatedObjectsIndex].allowedInterfaces & REPLICA_SEND_DESTRUCTION))
-			{
-				userDataBitStream.Reset();
-				userDataBitStream.Write((MessageID)ID_REPLICA_MANAGER_DESTRUCTION);
-				userDataBitStream.Write(replica->GetNetworkID());
-				sendTimestamp=false;
-				replica->SendDestruction(&userDataBitStream, participantStruct->systemAddress, &sendTimestamp);
-				outBitstream.Reset();
-				if (userDataBitStream.GetNumberOfBitsUsed()>0)
-				{
-					if (sendTimestamp)
-					{
-						outBitstream.Write((MessageID)ID_TIMESTAMP);
-						outBitstream.Write(RakNet::GetTime());
-						outBitstream.Write(&userDataBitStream);
-						rakPeer->Send(&outBitstream, HIGH_PRIORITY, RELIABLE_ORDERED, sendChannel, participantStruct->systemAddress, false);
-					}
-					else
-						rakPeer->Send(&userDataBitStream, HIGH_PRIORITY, RELIABLE_ORDERED, sendChannel, participantStruct->systemAddress, false);
-				}
-			}
-
-			// Remove any pending commands that reference this object, for this player
-			tempIndex = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
-			if (objectExists)
-				participantStruct->commandList.RemoveAtIndex(tempIndex);
-
 			// Remove any remote object state tracking for this object, for this player
 			tempIndex = participantStruct->remoteObjectList.GetIndexFromKey(replica, &objectExists);
 			if (objectExists)
+			{
+				// Send the destruction packet immediately
+				if (replica->GetNetworkID()!=UNASSIGNED_NETWORK_ID &&
+					(replicatedObjects[replicatedObjectsIndex].allowedInterfaces & REPLICA_SEND_DESTRUCTION))
+				{
+					userDataBitStream.Reset();
+					userDataBitStream.Write((MessageID)ID_REPLICA_MANAGER_DESTRUCTION);
+					userDataBitStream.Write(replica->GetNetworkID());
+					sendTimestamp=false;
+					ReplicaReturnResult res = replica->SendDestruction(&userDataBitStream, participantStruct->systemAddress, &sendTimestamp);
+					if (res==REPLICA_PROCESSING_DONE)
+					{
+						outBitstream.Reset();
+						if (sendTimestamp)
+						{
+							outBitstream.Write((MessageID)ID_TIMESTAMP);
+							outBitstream.Write(RakNet::GetTime());
+							outBitstream.Write(&userDataBitStream);
+							rakPeer->Send(&outBitstream, HIGH_PRIORITY, RELIABLE_ORDERED, sendChannel, participantStruct->systemAddress, false);
+						}
+						else
+							rakPeer->Send(&userDataBitStream, HIGH_PRIORITY, RELIABLE_ORDERED, sendChannel, participantStruct->systemAddress, false);
+					}
+				}
+
 				participantStruct->remoteObjectList.RemoveAtIndex(tempIndex);
+			}
+
+			// Remove any pending commands that reference this object, for this player
+			tempIndex = GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
+		//	tempIndex = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+			if (objectExists)
+				participantStruct->commandList.RemoveAtIndex(tempIndex);
 		}
 		else if (replicaReferenced==false)
 		{
+			bool objectExists;
+			GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
 			// See if any commands or objects reference replica
-			if (participantStruct->commandList.HasData(replica))
+			//if (participantStruct->commandList.HasData(replica))
+			if (objectExists)
 				replicaReferenced=true;
 			else if (participantStruct->remoteObjectList.HasData(replica))
 				replicaReferenced=true;
@@ -248,7 +312,11 @@ void ReplicaManager::ReferencePointer(Replica *replica)
 		replicaAndTime.replica=replica;
 		replicaAndTime.lastDeserializeTrue=0;
 		replicaAndTime.allowedInterfaces=REPLICA_SET_ALL;
-		replicatedObjects.Insert(replica,replicaAndTime);
+		replicaAndTime.referenceOrder=nextReferenceIndex++;
+		replicatedObjects.Insert(replica,replicaAndTime, true);
+		/// Try setting the network ID manager if the user forgot
+		if (replica->GetNetworkIDManager()==0)
+			replica->SetNetworkIDManager(rakPeer->GetNetworkIDManager());
 	}
 }
 void ReplicaManager::DereferencePointer(Replica *replica)
@@ -268,7 +336,8 @@ void ReplicaManager::DereferencePointer(Replica *replica)
 		participantStruct=participantList[i];
 
 		// Remove any pending commands that reference this object for any player
-		tempIndex = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+		tempIndex = GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
+	//	tempIndex = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
 		if (objectExists)
 			participantStruct->commandList.RemoveAtIndex(tempIndex);
 
@@ -306,7 +375,8 @@ void ReplicaManager::SetScope(Replica *replica, bool inScope, SystemAddress syst
 			(broadcast==false && systemAddress==participantStruct->systemAddress))
 		{
 			// If there is already a pending command for this object, add to it.  Otherwise, add a new pending command
-			index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+			index = GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
+//			index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
             if (objectExists)
 			{
 				// Update a pending command
@@ -324,7 +394,7 @@ void ReplicaManager::SetScope(Replica *replica, bool inScope, SystemAddress syst
 			else
 			{
 				// Add a new command, since there are no pending commands for this object
-				participantStruct->commandList.Insert(replicaAndCommand.replica,replicaAndCommand);
+				participantStruct->commandList.Insert(replicaAndCommand);
 			}
 		}
 	}
@@ -356,7 +426,8 @@ void ReplicaManager::SignalSerializeNeeded(Replica *replica, SystemAddress syste
 			(broadcast==false && systemAddress==participantStruct->systemAddress))
 		{
 			// If there is already a pending command for this object, add to it.  Otherwise, add a new pending command
-			index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+			// index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+			index = GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
 			if (objectExists)
 			{
 				participantStruct->commandList[index].command|=REPLICA_SERIALIZE; // Set this bit			
@@ -364,26 +435,21 @@ void ReplicaManager::SignalSerializeNeeded(Replica *replica, SystemAddress syste
 			else
 			{
 				// Add a new command, since there are no pending commands for this object
-				participantStruct->commandList.Insert(replicaAndCommand.replica,replicaAndCommand);
+				participantStruct->commandList.Insert(replicaAndCommand);
 			}
 		}
 	}
 }
-void ReplicaManager::SetReceiveConstructionCB(void *_constructionUserData, ReplicaReturnResult (* constructionCB)(RakNet::BitStream *inBitStream, RakNetTime timestamp, NetworkID networkID, Replica *existingReplica, SystemAddress senderId, ReplicaManager *caller, void *userData))
+void ReplicaManager::SetReceiveConstructionCB(ReceiveConstructionInterface *ReceiveConstructionInterface)
 {
 	// Just overwrite the construction callback pointer
-	_constructionCB=constructionCB;
-	constructionUserData=_constructionUserData;
+	_constructionCB=ReceiveConstructionInterface;
 }
-void ReplicaManager::SetDownloadCompleteCB(void *_sendDownloadCompleteUserData, ReplicaReturnResult (* sendDownloadCompleteCB)(RakNet::BitStream *outBitStream, RakNetTime currentTime, SystemAddress senderId, ReplicaManager *caller, void *userData),
-										   void *_receiveDownloadCompleteUserData, ReplicaReturnResult (* receiveDownloadCompleteCB)(RakNet::BitStream *inBitStream, SystemAddress senderId, ReplicaManager *caller, void *userData))
+void ReplicaManager::SetDownloadCompleteCB(SendDownloadCompleteInterface *sendDownloadComplete, ReceiveDownloadCompleteInterface *receiveDownloadComplete)
 {
 	// Just overwrite the send and receive download complete pointers.
-	_sendDownloadCompleteCB=sendDownloadCompleteCB;
-	_receiveDownloadCompleteCB=receiveDownloadCompleteCB;
-
-	sendDownloadCompleteUserData=_sendDownloadCompleteUserData;
-	receiveDownloadCompleteUserData=_receiveDownloadCompleteUserData;
+	_sendDownloadCompleteCB=sendDownloadComplete;
+	_receiveDownloadCompleteCB=receiveDownloadComplete;
 }
 void ReplicaManager::SetSendChannel(unsigned char channel)
 {
@@ -469,6 +535,10 @@ SystemAddress ReplicaManager::GetParticipantAtIndex(unsigned index)
 {
 	return participantList[index]->systemAddress;
 }
+bool ReplicaManager::HasParticipant(SystemAddress systemAddress)
+{
+	return participantList.HasData(systemAddress);
+}
 void ReplicaManager::SignalSerializationFlags(Replica *replica, SystemAddress systemAddress, bool broadcast, bool set, unsigned int flags)
 {
 	assert(replica);
@@ -504,7 +574,8 @@ void ReplicaManager::SignalSerializationFlags(Replica *replica, SystemAddress sy
 			else
 			{
 				// The object is not yet created.  Add to the pending command, or create a new command.
-				index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+				// index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+				index = GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
 				if (objectExists)
 				{
 					if (set)
@@ -515,7 +586,7 @@ void ReplicaManager::SignalSerializationFlags(Replica *replica, SystemAddress sy
 				else if (set)
 				{
 					// Add a new command, since there are no pending commands for this object
-					participantStruct->commandList.Insert(replicaAndCommand.replica,replicaAndCommand);
+					participantStruct->commandList.Insert(replicaAndCommand);
 				}
 			}
 		}
@@ -548,7 +619,8 @@ unsigned int* ReplicaManager::AccessSerializationFlags(Replica *replica, SystemA
 		}
 		else
 		{
-			index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+//			index = participantStruct->commandList.GetIndexFromKey(replica, &objectExists);
+			index = GetCommandListReplicaIndex(participantStruct->commandList, replica, &objectExists);
 			if (objectExists)
 			{
 				return &(participantStruct->commandList[index].userFlags);
@@ -556,8 +628,10 @@ unsigned int* ReplicaManager::AccessSerializationFlags(Replica *replica, SystemA
 			else
 			{
 				// Add a new command, since there are no pending commands for this object
-				index = participantStruct->commandList.Insert(replicaAndCommand.replica,replicaAndCommand);
-				return &(participantStruct->commandList[index].userFlags);
+				//index =
+					participantStruct->commandList.Insert(replicaAndCommand);
+				// return &(participantStruct->commandList[index].userFlags);
+					return & (participantStruct->commandList[participantStruct->commandList.Size()-1].userFlags);
 			}
 		}
 	}
@@ -574,6 +648,15 @@ void ReplicaManager::Clear(void)
 		delete participantList[i];
 	participantList.Clear();
 	replicatedObjects.Clear();
+	nextReferenceIndex=0;
+}
+void ReplicaManager::AssertReplicatedObjectsClear(void)
+{
+	RakAssert(replicatedObjects.Size()==0);
+}
+void ReplicaManager::AssertParticipantsClear(void)
+{
+	RakAssert(participantList.Size()==0);
 }
 void ReplicaManager::OnAttach(RakPeerInterface *peer)
 {
@@ -583,6 +666,12 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 {
 	if (participantList.Size()==0)
 		return;
+
+	// Check for recursive calls, which is not supported and should not happen
+#ifdef _DEBUG
+	RakAssert(inUpdate==false);
+	inUpdate=true;
+#endif
 
 	unsigned participantIndex, remoteObjectListIndex, replicatedObjectsIndex;
 	ReplicaReturnResult res;
@@ -596,7 +685,7 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 	PacketReliability reliability;
 	ReceivedCommand *receivedCommand;
 	Replica *replica;
-	unsigned int userFlags;
+//	unsigned int userFlags;
 	unsigned char command;
 	currentTime=0;
 
@@ -627,7 +716,7 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 				ReplicaReturnResult sendDLComplete;
 				userDataBitstream.Reset();
 				if (_sendDownloadCompleteCB)
-					sendDLComplete=_sendDownloadCompleteCB(&userDataBitstream, currentTime, participantStruct->systemAddress, this, sendDownloadCompleteUserData); // If you return false, this will be called again next update
+					sendDLComplete=_sendDownloadCompleteCB->SendDownloadComplete(&userDataBitstream, currentTime, participantStruct->systemAddress, this); // If you return false, this will be called again next update
 				else
 					sendDLComplete=REPLICA_CANCEL_PROCESS;
 				if (sendDLComplete==REPLICA_PROCESSING_DONE)
@@ -659,11 +748,13 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 
 			replica=participantStruct->commandList[commandListIndex].replica;
 			command=participantStruct->commandList[commandListIndex].command;
-			userFlags=participantStruct->commandList[commandListIndex].userFlags;
+		//	userFlags=participantStruct->commandList[commandListIndex].userFlags;
 			replicatedObjectsIndex=replicatedObjects.GetIndexFromKey(replica, &objectExists);
 #ifdef _DEBUG
 			assert(objectExists);
 #endif
+			if (objectExists==false)
+				continue;
 
 			// If construction is set, call SendConstruction.  The only precondition is that the object was not already created,
 			// which was checked in ReplicaManager::Replicate
@@ -673,7 +764,8 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 				{
 					userDataBitstream.Reset();
 					sendTimestamp=false;
-					res=replica->SendConstruction(currentTime, participantStruct->systemAddress, &userDataBitstream, &sendTimestamp);
+					res=replica->SendConstruction(currentTime, participantStruct->systemAddress,
+						participantStruct->commandList[commandListIndex].userFlags, &userDataBitstream, &sendTimestamp);
 
 					if (res==REPLICA_PROCESSING_DONE)
 					{
@@ -712,12 +804,29 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 						// Add the object to the participant's object list, indicating this object has been remotely created
 						RemoteObject remoteObject;
 						remoteObject.replica=replica;
-						remoteObject.inScope=defaultScope;
+						//remoteObject.inScope=defaultScope;
+						remoteObject.inScope=false;
 						remoteObject.lastSendTime=0;
-						remoteObject.userFlags=userFlags;
+						remoteObject.userFlags=participantStruct->commandList[commandListIndex].userFlags;
 						// Create an entry for this object.  We do this now, even if the user might refuse the SendConstruction override,
 						// because that call may be delayed and other commands sent while that is pending.  We always do the REPLICA_EXPLICIT_CONSTRUCTION call first.
-						participantStruct->remoteObjectList.Insert(remoteObject.replica,remoteObject);
+						participantStruct->remoteObjectList.Insert(remoteObject.replica,remoteObject, true);
+					}
+					else if (res==REPLICA_PROCESS_IMPLICIT)
+					{
+						// Turn off this bit
+						participantStruct->commandList[commandListIndex].command &= 0xFF ^ REPLICA_EXPLICIT_CONSTRUCTION;
+
+						// Add the object to the participant's object list, indicating this object has been remotely created
+						RemoteObject remoteObject;
+						remoteObject.replica=replica;
+						//remoteObject.inScope=defaultScope;
+						remoteObject.inScope=false;
+						remoteObject.lastSendTime=0;
+						remoteObject.userFlags=participantStruct->commandList[commandListIndex].userFlags;
+						// Create an entry for this object.  We do this now, even if the user might refuse the SendConstruction override,
+						// because that call may be delayed and other commands sent while that is pending.  We always do the REPLICA_EXPLICIT_CONSTRUCTION call first.
+						participantStruct->remoteObjectList.Insert(remoteObject.replica,remoteObject, true);
 					}
 					else if (res==REPLICA_PROCESS_LATER)
 					{
@@ -743,12 +852,13 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 				// Add the object to the participant's object list, indicating this object is assumed to be remotely created
 				RemoteObject remoteObject;
 				remoteObject.replica=replica;
-				remoteObject.inScope=defaultScope;
+				//remoteObject.inScope=defaultScope;
+				remoteObject.inScope=false;
 				remoteObject.lastSendTime=0;
-				remoteObject.userFlags=userFlags;
+				remoteObject.userFlags=participantStruct->commandList[commandListIndex].userFlags;
 				// Create an entry for this object.  We do this now, even if the user might refuse the SendConstruction override,
 				// because that call may be delayed and other commands sent while that is pending.  We always do the REPLICA_EXPLICIT_CONSTRUCTION call first.
-				participantStruct->remoteObjectList.Insert(remoteObject.replica,remoteObject);
+				participantStruct->remoteObjectList.Insert(remoteObject.replica,remoteObject, true);
 			}
 
 			// The remaining commands, SendScopeChange and Serialize, require the object the command references exists on the remote system, so check that
@@ -825,7 +935,7 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 
 				command = participantStruct->commandList[commandListIndex].command;
 				// Process Serialize
-				if ((participantStruct->commandList[commandListIndex].command & REPLICA_SERIALIZE))
+				if ((command & REPLICA_SERIALIZE))
 				{
 					if (replica->GetNetworkID()==UNASSIGNED_NETWORK_ID)
 						continue; // Not set yet so call this later.
@@ -930,6 +1040,9 @@ void ReplicaManager::Update(RakPeerInterface *peer)
 			delete receivedCommand;
 		}
 	}
+#ifdef _DEBUG
+	inUpdate=false;
+#endif
 }
 #ifdef _MSC_VER
 #pragma warning( disable : 4100 ) // warning C4100: <variable name> : unreferenced formal parameter
@@ -1062,7 +1175,12 @@ ReplicaManager::ParticipantStruct* ReplicaManager::GetParticipantBySystemAddress
 #endif
 ReplicaReturnResult ReplicaManager::ProcessReceivedCommand(ParticipantStruct *participantStruct, ReceivedCommand *receivedCommand)
 {
-	Replica *replica = (Replica*) NetworkIDGenerator::GET_BASE_OBJECT_FROM_ID(receivedCommand->networkID);
+	// If this assert hits you didn't first call RakPeer::SetNetworkIDManager as required.
+	RakAssert(rakPeer->GetNetworkIDManager());
+	if (rakPeer->GetNetworkIDManager()==0)
+		return REPLICA_CANCEL_PROCESS;
+
+	Replica *replica = (Replica*) rakPeer->GetNetworkIDManager()->GET_BASE_OBJECT_FROM_ID(receivedCommand->networkID);
 	
 	bool objectExists;
 	unsigned index;
@@ -1072,16 +1190,22 @@ ReplicaReturnResult ReplicaManager::ProcessReceivedCommand(ParticipantStruct *pa
 		index = replicatedObjects.GetIndexFromKey(replica, &objectExists);
 		if (objectExists==false)
 		{
-			// Two ways to handle this.  One is to autoregister the object - but this is dangerous in that if you have a network object that is not
-			// using the replica system it would be of the wrong type, read read invalid memory, and crash.
-			// Construct(replica, systemAddress, broadcast, true);
-
-			// The other way is to assert and do nothing.  The disadvantage is now the user has to register the object in order to receive calls on it.
+			if (receivedCommand->command==ID_REPLICA_MANAGER_CONSTRUCTION)
+			{
+				// Object already exists with this ID, but call construction anyway
 #ifdef _DEBUG
-			// If this assert hits, call ReferencePointer on your replica pointer after it is created.
-			assert(0);
+				assert(_constructionCB);
 #endif
-			return REPLICA_CANCEL_PROCESS;
+				// Call the registered callback.  If it crashes, you forgot to register the callback in SetReceiveConstructionCB
+				return _constructionCB->ReceiveConstruction(receivedCommand->userData, receivedCommand->u1, receivedCommand->networkID, replica, receivedCommand->systemAddress, this);
+			}
+			else
+			{
+				// This networkID is already in use but ReferencePointer was never called on it.
+				// RakAssert(0);
+				return REPLICA_CANCEL_PROCESS;
+			}
+			
 		}
 	}
 
@@ -1102,7 +1226,7 @@ ReplicaReturnResult ReplicaManager::ProcessReceivedCommand(ParticipantStruct *pa
 		assert(_constructionCB);
 #endif
 		// Call the registered callback.  If it crashes, you forgot to register the callback in SetReceiveConstructionCB
-		return _constructionCB(receivedCommand->userData, receivedCommand->u1, receivedCommand->networkID, replica, receivedCommand->systemAddress, this, constructionUserData);
+		return _constructionCB->ReceiveConstruction(receivedCommand->userData, receivedCommand->u1, receivedCommand->networkID, replica, receivedCommand->systemAddress, this);
 	}
 	else if (receivedCommand->command==ID_REPLICA_MANAGER_SCOPE_CHANGE)
 	{
@@ -1122,7 +1246,7 @@ ReplicaReturnResult ReplicaManager::ProcessReceivedCommand(ParticipantStruct *pa
 	{
 		if (_receiveDownloadCompleteCB)
 		{
-			return _receiveDownloadCompleteCB(receivedCommand->userData, receivedCommand->systemAddress, this, receiveDownloadCompleteUserData);
+			return _receiveDownloadCompleteCB->ReceiveDownloadComplete(receivedCommand->userData, receivedCommand->systemAddress, this);
 		}
 	}
 
@@ -1138,6 +1262,21 @@ ReplicaManager::ParticipantStruct::~ParticipantStruct()
 		delete receivedCommand->userData;
 		delete receivedCommand;
 	}
+}
+
+unsigned ReplicaManager::GetCommandListReplicaIndex(const DataStructures::List<ReplicaManager::CommandStruct> &commandList, Replica *replica, bool *objectExists) const
+{
+	unsigned i;
+	for (i=0; i < commandList.Size(); i++)
+	{
+		if (commandList[i].replica==replica)
+		{
+			*objectExists=true;
+			return i;
+		}
+	}
+	*objectExists=false;
+	return 0;
 }
 
 #ifdef _MSC_VER

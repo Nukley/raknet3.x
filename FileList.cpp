@@ -1,11 +1,9 @@
 #include "FileList.h"
 #include <assert.h>
-#ifndef _COMPATIBILITY_2
-	#if defined(_WIN32) || defined(__CYGWIN__)
+#if defined(_WIN32) || defined(__CYGWIN__)
 	#include <io.h>
-	#elif !defined ( __APPLE__ ) && !defined ( __APPLE_CC__ )
+#elif !defined ( __APPLE__ ) && !defined ( __APPLE_CC__ ) && !defined ( __PPC__ )
 	#include <sys/io.h>
-	#endif
 #endif
 #include <stdio.h>
 #include "DS_Queue.h"
@@ -21,13 +19,14 @@
 #include "BitStream.h"
 #include "FileOperations.h"
 
+#define MAX_FILENAME_LENGTH 512
+
 // alloca
-#ifdef _COMPATIBILITY_1
+#ifdef _CONSOLE_1
 #elif defined(_WIN32)
 #include <malloc.h>
-#elif defined(_COMPATIBILITY_2)
-#include "Compatibility2Includes.h"
 #else
+#include <alloca.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -59,13 +58,16 @@ void FileList::AddFile(const char *filepath, const char *filename, unsigned char
 		return;
 
 	char *data;
+	//std::fstream file;
+	//file.open(filename, std::ios::in | std::ios::binary);
+
 	FILE *fp = fopen(filepath, "rb");
 	if (fp==0)
 		return;
 	fseek(fp, 0, SEEK_END);
 	int length = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 	bool usedAlloca=false;
 	if (length < MAX_ALLOCA_STACK_ALLOCATION)
 	{
@@ -75,23 +77,29 @@ void FileList::AddFile(const char *filepath, const char *filename, unsigned char
 	else
 #endif
 	{
-		data = new char [length];
+		data = (char*) rakMalloc( length );
 	}
 
+	fread(data, 1, length, fp);
 	AddFile(filename, data, length, length, context);
 	fclose(fp);
 
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 	if (usedAlloca==false)
 #endif
-		delete [] data;
+		rakFree(data);
 
 }
 void FileList::AddFile(const char *filename, const char *data, const unsigned dataLength, const unsigned fileLength, unsigned char context)
 {
 	if (filename==0)
 		return;
-
+	if (strlen(filename)>MAX_FILENAME_LENGTH)
+	{
+		// Should be enough for anyone
+		assert(0);
+		return;
+	}
 	// Avoid duplicate insertions unless the data is different, in which case overwrite the old data
 	unsigned i;
 	for (i=0; i<fileList.Size();i++)
@@ -104,18 +112,18 @@ void FileList::AddFile(const char *filename, const char *data, const unsigned da
 				return;
 
 			// File of the same name, but different contents, so overwrite
-			delete [] fileList[i].data;
-			delete [] fileList[i].filename;
+			rakFree(fileList[i].data);
+			rakFree(fileList[i].filename);
 			fileList.RemoveAtIndex(i);
 			break;
 		}
 	}
 
 	FileListNode n;
-	n.filename=new char [strlen(filename)+1];
+	n.filename=(char*) rakMalloc( strlen(filename)+1 );
 	if (dataLength)
 	{
-		n.data=new char [dataLength];
+		n.data=(char*) rakMalloc( dataLength );
 		memcpy(n.data, data, dataLength);
 	}
 	else
@@ -129,7 +137,6 @@ void FileList::AddFile(const char *filename, const char *data, const unsigned da
 }
 void FileList::AddFilesFromDirectory(const char *applicationDirectory, const char *subDirectory, bool writeHash, bool writeData, bool recursive, unsigned char context)
 {
-#ifndef _COMPATIBILITY_2
 	DataStructures::Queue<char*> dirList;
 	char root[260];
 	char fullPath[520];
@@ -139,7 +146,7 @@ void FileList::AddFilesFromDirectory(const char *applicationDirectory, const cha
 	FILE *fp;
 	CSHA1 sha1;
 	char *dirSoFar, *fileData;
-	dirSoFar=new char[520];
+	dirSoFar=(char*) rakMalloc( 520 );
 
 	if (applicationDirectory)
 		strcpy(root, applicationDirectory);
@@ -152,7 +159,7 @@ void FileList::AddFilesFromDirectory(const char *applicationDirectory, const cha
 		strcpy(dirSoFar, root);
 		if (dirSoFar[strlen(dirSoFar)-1]!='/' && dirSoFar[strlen(dirSoFar)-1]!='\\')
 		{
-			strcat(dirSoFar, "/");
+			strcat(dirSoFar, "\\"); // Only \ works with system commands, used by AutopatcherClient
 			rootLen++;
 		}
 	}
@@ -164,9 +171,10 @@ void FileList::AddFilesFromDirectory(const char *applicationDirectory, const cha
 		strcat(dirSoFar, subDirectory);
 		if (dirSoFar[strlen(dirSoFar)-1]!='/' && dirSoFar[strlen(dirSoFar)-1]!='\\')
 		{
-			strcat(dirSoFar, "/");
+			strcat(dirSoFar, "\\"); // Only \ works with system commands, used by AutopatcherClient
 		}
 	}
+	printf("Adding files from directory %s\n",dirSoFar);
 	dirList.Push(dirSoFar);
 	while (dirList.Size())
 	{
@@ -177,14 +185,16 @@ void FileList::AddFilesFromDirectory(const char *applicationDirectory, const cha
 		if (dir==-1)
 		{
 			_findclose(dir);
-			delete [] dirSoFar;
+			rakFree(dirSoFar);
 			unsigned i;
 			for (i=0; i < dirList.Size(); i++)
-				delete [] dirList[i];
+				rakFree(dirList[i]);
 			return;
 		}
 		file=_findnext(dir, &fileInfo ); // Read ..
 		file=_findnext(dir, &fileInfo ); // Skip ..
+
+		printf("Adding %s. %i remaining.\n", fullPath, dirList.Size());
 
 		while (file!=-1)
 		{
@@ -193,9 +203,9 @@ void FileList::AddFilesFromDirectory(const char *applicationDirectory, const cha
 				strcpy(fullPath, dirSoFar);
 				strcat(fullPath, fileInfo.name);
 				if (writeData && writeHash)
-					fileData= new char [fileInfo.size+SHA1_LENGTH];
+					fileData= (char*) rakMalloc( fileInfo.size+SHA1_LENGTH );
 				else
-					fileData= new char [fileInfo.size];
+					fileData= (char*) rakMalloc( fileInfo.size );
 				fp = fopen(fullPath, "rb");
 				if (writeData && writeHash)
 					fread(fileData+SHA1_LENGTH, fileInfo.size, 1, fp);
@@ -225,11 +235,11 @@ void FileList::AddFilesFromDirectory(const char *applicationDirectory, const cha
 				else
 					AddFile(fullPath+rootLen, 0, 0, fileInfo.size, context);
 
-				delete [] fileData;
+				rakFree(fileData);
 			}
 			else if ((fileInfo.attrib & _A_SUBDIR) && (fileInfo.attrib & (_A_HIDDEN | _A_SYSTEM))==0 && recursive)
 			{
-				char *newDir=new char[520];
+				char *newDir=(char*) rakMalloc( 520 );
 				strcpy(newDir, dirSoFar);
 				strcat(newDir, fileInfo.name);
 				strcat(newDir, "/");
@@ -239,17 +249,16 @@ void FileList::AddFilesFromDirectory(const char *applicationDirectory, const cha
 		}
 
 		_findclose(dir);
-		delete [] dirSoFar;
+		rakFree(dirSoFar);
 	}
-#endif
 }
 void FileList::Clear(void)
 {
 	unsigned i;
 	for (i=0; i<fileList.Size(); i++)
 	{
-		delete [] fileList[i].data;
-		delete [] fileList[i].filename;
+		rakFree(fileList[i].data);
+		rakFree(fileList[i].filename);
 	}
 	fileList.Clear();
 }
@@ -260,7 +269,7 @@ void FileList::Serialize(RakNet::BitStream *outBitStream)
 	for (i=0; i < fileList.Size(); i++)
 	{
 		outBitStream->WriteCompressed(fileList[i].context);
-		stringCompressor->EncodeString(fileList[i].filename, 512, outBitStream);
+		stringCompressor->EncodeString(fileList[i].filename, MAX_FILENAME_LENGTH, outBitStream);
 		outBitStream->Write((bool)(fileList[i].dataLength>0==true));
 		if (fileList[i].dataLength>0)
 		{
@@ -291,7 +300,7 @@ bool FileList::Deserialize(RakNet::BitStream *inBitStream)
 	for (i=0; i < fileListSize; i++)
 	{
 		inBitStream->ReadCompressed(n.context);
-		stringCompressor->DecodeString((char*)filename, 512, inBitStream);
+		stringCompressor->DecodeString((char*)filename, MAX_FILENAME_LENGTH, inBitStream);
 		inBitStream->Read(dataLenNonZero);
 		if (dataLenNonZero)
 		{
@@ -304,7 +313,7 @@ bool FileList::Deserialize(RakNet::BitStream *inBitStream)
 #endif
 				return false;
 			}
-			n.data=new char [n.dataLength];
+			n.data=(char*) rakMalloc( n.dataLength );
 			inBitStream->Read(n.data, n.dataLength);
 		}
 		else
@@ -326,7 +335,7 @@ bool FileList::Deserialize(RakNet::BitStream *inBitStream)
 			Clear();
 			return false;
 		}
-		n.filename=new char [strlen(filename)+1];
+		n.filename=(char*) rakMalloc( strlen(filename)+1 );
 		strcpy(n.filename, filename);
 		fileList.Insert(n);
 	}
@@ -390,7 +399,7 @@ void FileList::GetDeltaToCurrent(FileList *input, FileList *output, const char *
 				else
 				{
 					// File exists on both machines and is not the same.
-					output->AddFile(fileList[inputIndex].filename, 0,0, fileList[inputIndex].fileLength, 0);
+					output->AddFile(fileList[thisIndex].filename, 0,0, fileList[thisIndex].fileLength, 0);
 					break;
 				}
 			}
@@ -415,7 +424,7 @@ void FileList::ListMissingOrChangedFiles(const char *applicationDirectory, FileL
 	{
 		strcpy(fullPath, applicationDirectory);
 		if (fullPath[strlen(fullPath)-1]!='/' && fullPath[strlen(fullPath)-1]!='\\')
-			strcat(fullPath, "/");
+			strcat(fullPath, "\\"); // Only \ works with system commands, used by AutopatcherClient
 		strcat(fullPath,fileList[i].filename);
 		fp=fopen(fullPath, "rb");
 		if (fp==0)
@@ -435,15 +444,14 @@ void FileList::ListMissingOrChangedFiles(const char *applicationDirectory, FileL
 			else
 			{
 
-				fileData= new char [fileLength];
+				fileData= (char*) rakMalloc( fileLength );
 				fread(fileData, fileLength, 1, fp);
-				fclose(fp);
 
 				sha1.Reset();
 				sha1.Update( ( unsigned char* ) fileData, fileLength );
 				sha1.Final();
 
-				delete [] fileData;
+				rakFree(fileData);
 
 				if (fileLength != fileList[i].fileLength || memcmp( sha1.GetHash(), fileList[i].data, 20)!=0)
 				{
@@ -453,6 +461,7 @@ void FileList::ListMissingOrChangedFiles(const char *applicationDirectory, FileL
 						missingOrChangedFiles->AddFile((const char*)fileList[i].filename, 0, 0, fileLength, 0);
 				}
 			}
+			fclose(fp);
 		}
 	}
 }
@@ -466,10 +475,10 @@ void FileList::PopulateDataFromDisk(const char *applicationDirectory, bool write
 	i=0;
 	while (i < fileList.Size())
 	{
-		delete [] fileList[i].data;
+		rakFree(fileList[i].data);
 		strcpy(fullPath, applicationDirectory);
 		if (fullPath[strlen(fullPath)-1]!='/' && fullPath[strlen(fullPath)-1]!='\\')
-			strcat(fullPath, "/");
+			strcat(fullPath, "\\");// Only \ works with system commands, used by AutopatcherClient
 		strcat(fullPath,fileList[i].filename);
 		fp=fopen(fullPath, "rb");
 		if (fp)
@@ -484,7 +493,7 @@ void FileList::PopulateDataFromDisk(const char *applicationDirectory, bool write
 					if (writeFileData)
 					{
 						// Hash + data so offset the data by SHA1_LENGTH
-						fileList[i].data=new char[fileList[i].fileLength+SHA1_LENGTH];
+						fileList[i].data=(char*) rakMalloc( fileList[i].fileLength+SHA1_LENGTH );
 						fread(fileList[i].data+SHA1_LENGTH, fileList[i].fileLength, 1, fp);
 						sha1.Reset();
 						sha1.Update((unsigned char*)fileList[i].data+SHA1_LENGTH, fileList[i].fileLength);
@@ -496,9 +505,9 @@ void FileList::PopulateDataFromDisk(const char *applicationDirectory, bool write
 						// Hash only
 						fileList[i].dataLength=SHA1_LENGTH;
 						if (fileList[i].fileLength < SHA1_LENGTH)
-							fileList[i].data=new char[SHA1_LENGTH];
+							fileList[i].data=(char*) rakMalloc( SHA1_LENGTH );
 						else
-							fileList[i].data=new char[fileList[i].fileLength];
+							fileList[i].data=(char*) rakMalloc( fileList[i].fileLength );
 						fread(fileList[i].data, fileList[i].fileLength, 1, fp);
 						sha1.Reset();
 						sha1.Update((unsigned char*)fileList[i].data, fileList[i].fileLength);
@@ -510,7 +519,7 @@ void FileList::PopulateDataFromDisk(const char *applicationDirectory, bool write
 				{
 					// Data only
 					fileList[i].dataLength=fileList[i].fileLength;
-					fileList[i].data=new char[fileList[i].fileLength];
+					fileList[i].data=(char*) rakMalloc( fileList[i].fileLength );
 					fread(fileList[i].data, fileList[i].fileLength, 1, fp);
 				}
 
@@ -527,7 +536,7 @@ void FileList::PopulateDataFromDisk(const char *applicationDirectory, bool write
 		{
 			if (removeUnknownFiles)
 			{
-				delete [] fileList[i].filename;
+				rakFree(fileList[i].filename);
 				fileList.RemoveAtIndex(i);
 			}
 			else
@@ -544,7 +553,7 @@ void FileList::WriteDataToDisk(const char *applicationDirectory)
 	{
 		strcpy(fullPath, applicationDirectory);
 		if (fullPath[strlen(fullPath)-1]!='/' && fullPath[strlen(fullPath)-1]!='\\')
-			strcat(fullPath, "/");
+			strcat(fullPath, "\\"); // Only \ works with system commands, used by AutopatcherClient
 		strcat(fullPath,fileList[i].filename);
 		
 		// Security - Don't allow .. in the filename anywhere so you can't write outside of the root directory
@@ -588,9 +597,13 @@ void FileList::DeleteFiles(const char *applicationDirectory)
 		}
 
 		strcpy(fullPath, applicationDirectory);
+		if (fullPath[strlen(fullPath)-1]!='/' && fullPath[strlen(fullPath)-1]!='\\')
+			strcat(fullPath, "\\"); // Only \ works with system commands, used by AutopatcherClient
 		strcat(fullPath, fileList[i].filename);
 
-
+#ifdef _MSC_VER
+#pragma warning( disable : 4966 ) // unlink declared depreciated by Microsoft in order to make it harder to be cross platform.  I don't agree it's depreciated.
+#endif
         unlink(fullPath);
 	}
 }

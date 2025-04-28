@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -39,6 +39,14 @@ public:
 
 	virtual void Update(RakPeerInterface *peer);
 
+	// Translate the supplied parameters into an output line - overloaded version that takes a MessageIdentifier
+	// and translates it into a string (numeric or textual representation based on printId); this calls the
+	// second version which takes a const char* argument for the messageIdentifier
+	virtual void FormatLine(char* into, const char* dir, const char* type, unsigned int packet, unsigned int frame
+		, unsigned char messageIdentifier, unsigned int bitLen, unsigned long long time, const SystemAddress& local, const SystemAddress& remote);
+	virtual void FormatLine(char* into, const char* dir, const char* type, unsigned int packet, unsigned int frame
+		, const char* idToPrint, unsigned int bitLen, unsigned long long time, const SystemAddress& local, const SystemAddress& remote);
+
 	/// Events on low level sends and receives.  These functions may be called from different threads at the same time.
 	virtual void OnDirectSocketSend(const char *data, const unsigned bitsUsed, SystemAddress remoteSystemAddress);
 	virtual void OnDirectSocketReceive(const char *data, const unsigned bitsUsed, SystemAddress remoteSystemAddress);
@@ -60,10 +68,10 @@ public:
 
 	/// Append this string to output logs. (newline is useful here)
 	virtual void SetSuffix(const char *_suffix);
+	static char* BaseIDTOString(unsigned char Id);
 protected:
-	virtual void AddToLog(const char *str);
 	char* IDTOString(unsigned char Id);
-	char* BaseIDTOString(unsigned char Id);
+	virtual void AddToLog(const char *str);
 	// Users should override this
 	virtual char* UserIDTOString(unsigned char Id);
 

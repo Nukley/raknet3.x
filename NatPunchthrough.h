@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -78,20 +78,20 @@ public:
 	/// Both you and the host must be connected to the facilitator.
 	/// \pre Requires that you first call Initialize
 	/// \pre Both \a host and this system must already be connected to the system at the address \a facilitator and facilitator must be running NatPunchthrough with FacilitateConnections(true) previously called.
-	/// \param[in] receiver Either a dotted IP address or a domain name of the system you ultimately want to connect to.
+	/// \param[in] destination Either a dotted IP address or a domain name of the system you ultimately want to connect to.
 	/// \param[in] remotePort Which port to connect to of the system you ultimately want to connect to.
 	/// \param[in] passwordData A data block that must match the data block on the \a host.  This can be just a password, or can be a stream of data
 	/// \param[in] passwordDataLength The length in bytes of passwordData
 	/// \return If you are not connected to the facilitator this function returns false.  Otherwise it returns true.
-	bool Connect(const char* receiver, unsigned short remotePort, char* passwordData, int passwordDataLength, SystemAddress facilitator);
+	bool Connect(const char* destination, unsigned short remotePort, const char *passwordData, int passwordDataLength, SystemAddress facilitator);
 
 	/// Same as above, but takes a SystemAddress for a host
-	/// \param[in] receiver The address of the host to connect to.
+	/// \param[in] destination The address of the host to connect to.
 	/// \param[in] remotePort Which port to connect to of the system you ultimately want to connect to.
 	/// \param[in] passwordData A data block that must match the data block on the \a host.  This can be just a password, or can be a stream of data
 	/// \param[in] passwordDataLength The length in bytes of passwordData
 	/// \return If you are not connected to the facilitator this function returns false.  Otherwise it returns true.
-	bool Connect(SystemAddress receiver, char* passwordData, int passwordDataLength, SystemAddress facilitator);
+	bool Connect(SystemAddress destination, const char *passwordData, int passwordDataLength, SystemAddress facilitator);
 
 	/// Free internal memory.
 	void Clear(void);
@@ -116,7 +116,8 @@ public:
 
 		// Used by sender and facilitator
 		bool facilitatingConnection;
-		SystemAddress receiver;
+		SystemAddress receiverPublic;
+		SystemAddress receiverPrivate;
 		// Used to remove old connection Requests
 		RakNetTime timeoutTime;
 
@@ -126,14 +127,19 @@ public:
 		int passwordDataLength;
 
 		// Used only by facilitator
-		SystemAddress sender;
+		SystemAddress senderPublic;
+		SystemAddress senderPrivate;
 		unsigned char pingCount;
+
+		bool attemptedConnection;
 	};
 protected:
 	void OnPunchthroughRequest(RakPeerInterface *peer, Packet *packet);
 	void OnConnectAtTime(RakPeerInterface *peer, Packet *packet);
 	void OnSendOfflineMessageAtTime(RakPeerInterface *peer, Packet *packet);
 	PluginReceiveResult RemoveRequestByFacilitator(SystemAddress systemAddress);
+	PluginReceiveResult OnConnectionAttemptFailed(Packet *packet);
+	PluginReceiveResult OnConnectionRequestAccepted(Packet *packet);
 
 	bool allowFacilitation;
 	RakPeerInterface *rakPeer;

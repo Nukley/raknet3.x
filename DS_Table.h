@@ -7,6 +7,8 @@
 
 #include "DS_List.h"
 #include "DS_BPlusTree.h"
+#include "RakMemoryOverride.h"
+#include "Export.h"
 
 #define _TABLE_BPLUS_TREE_ORDER 16
 #define _TABLE_MAX_COLUMN_NAME_LENGTH 32
@@ -21,7 +23,7 @@ namespace DataStructures
 	/// This is a relatively simple and fast implementation of the types of tables commonly used in databases
 	/// See TableSerializer to serialize data members of the table
 	/// See LightweightDatabaseClient and LightweightDatabaseServer to transmit the table over the network.
-	class Table
+	class RAK_DLL_EXPORT Table : public RakNet::RakMemoryOverride
 	{
 	public:
 			
@@ -33,17 +35,20 @@ namespace DataStructures
 			// Cell::c used to hold a null terminated string.
 			STRING,
 
-			// Cell::c holds data.  Cell::i holds data length of c in bits.
-			BINARY
+			// Cell::c holds data.  Cell::i holds data length of c in bytes.
+			BINARY,
+
+			// Cell::c holds data.  Not deallocated. Set manually by assigning ptr.
+			POINTER,
 		};
 		
 		
 		/// Holds the actual data in the table
-		struct Cell
+		struct RAK_DLL_EXPORT Cell
 		{
 			Cell();
 			~Cell();
-			Cell(int intValue, char *charValue, ColumnType type);
+			Cell(int intValue, char *charValue, void *ptr, ColumnType type);
 			void Clear(void);
 			
 			/// Numeric
@@ -54,6 +59,9 @@ namespace DataStructures
 
 			/// Binary
 			void Set(const char *input, int inputLength);
+
+			/// Pointer
+			void SetPtr(void* p);
 
 			/// Numeric
 			void Get(int *output);
@@ -71,11 +79,12 @@ namespace DataStructures
 			bool isEmpty;
 			int i;
 			char *c;
+			void *ptr;
 		};
 
 		/// Stores the name and type of the column
 		/// \internal
-		struct ColumnDescriptor
+		struct RAK_DLL_EXPORT ColumnDescriptor
 		{
 			ColumnDescriptor();
 			~ColumnDescriptor();
@@ -86,7 +95,7 @@ namespace DataStructures
 		};
 
 		/// Stores the list of cells for this row, and a special flag used for internal sorting
-		struct Row
+		struct RAK_DLL_EXPORT Row
 		{
 			// list of cells
 			DataStructures::List<Cell*> cells;
@@ -107,18 +116,22 @@ namespace DataStructures
 			QF_EQUAL,
 			QF_NOT_EQUAL,
 			QF_GREATER_THAN,
+			QF_GREATER_THAN_EQ,
 			QF_LESS_THAN,
+			QF_LESS_THAN_EQ,
 			QF_IS_EMPTY,
 			QF_NOT_EMPTY,
 		};
 
 		// Compare the cell value for a row at columnName to the cellValue using operation.
-		struct FilterQuery
+		struct RAK_DLL_EXPORT FilterQuery
 		{
 			FilterQuery();
 			~FilterQuery();
 			FilterQuery(unsigned column, Cell *cell, FilterQueryType op);
 
+			// If columnName is specified, columnIndex will be looked up using it.
+			char columnName[_TABLE_MAX_COLUMN_NAME_LENGTH];
 			unsigned columnIndex;
 			Cell *cellValue;
 			FilterQueryType operation;
@@ -132,7 +145,7 @@ namespace DataStructures
 		};
 		
 		// Sort on increasing or decreasing order for a particular column
-		struct SortQuery
+		struct RAK_DLL_EXPORT SortQuery
 		{
 			/// The index of the table column we are sorting on
 			unsigned columnIndex;
@@ -162,6 +175,7 @@ namespace DataStructures
 		/// \param[in] columnName The name of the column
 		/// \return The index of the column, or (unsigned)-1 if no such column
 		unsigned ColumnIndex(char columnName[_TABLE_MAX_COLUMN_NAME_LENGTH]);
+		unsigned ColumnIndex(const char *columnName);
 
 		/// \brief Gives the string name of the column at a certain index
 		/// \param[in] index The index of the column
@@ -210,18 +224,28 @@ namespace DataStructures
 		bool UpdateCell(unsigned rowId, unsigned columnIndex, int value);
 		bool UpdateCell(unsigned rowId, unsigned columnIndex, char *str);
 		bool UpdateCell(unsigned rowId, unsigned columnIndex, int byteLength, char *data);
+		bool UpdateCellByIndex(unsigned rowIndex, unsigned columnIndex, int value);
+		bool UpdateCellByIndex(unsigned rowIndex, unsigned columnIndex, char *str);
+		bool UpdateCellByIndex(unsigned rowIndex, unsigned columnIndex, int byteLength, char *data);
+
+		/// Note this is much less efficient to call than GetRow, then working with the cells directly
+		/// Numeric, string, binary
+		void GetCellValueByIndex(unsigned rowIndex, unsigned columnIndex, int *output);
+		void GetCellValueByIndex(unsigned rowIndex, unsigned columnIndex, char *output);
+		void GetCellValueByIndex(unsigned rowIndex, unsigned columnIndex, char *output, int *outputLength);
 
 		/// Gets a row.  More efficient to do this and access Row::cells than to repeatedly call GetCell.
 		/// You can also update cells in rows from this function.
 		/// \param[in] rowId The ID of the row
 		/// \return The desired row, or 0 if no such row.
-		Row* GetRowByID(unsigned rowId);
+		Row* GetRowByID(unsigned rowId) const;
 
 		/// Gets a row at a specific index
 		/// rowIndex should be less than GetRowCount()
 		/// \param[in] rowIndex The index of the row
+		/// \param[out] key The ID of the row returned
 		/// \return The desired row, or 0 if no such row.
-		Row* GetRowByIndex(unsigned rowIndex);
+		Row* GetRowByIndex(unsigned rowIndex, unsigned *key);
 
 		/// \brief Queries the table, optionally returning only a subset of columns and rows.
 		/// \param[in] columnSubset An array of column indices.  Only columns in this array are returned.  Pass 0 for all columns
@@ -231,7 +255,7 @@ namespace DataStructures
 		/// \param[in] rowIds An arrow of row IDs.  Only these rows with these IDs are returned.  Pass 0 for all rows.
 		/// \param[in] numRowIDs The number of elements in \a rowIds
 		/// \param[out] result The result of the query.  If no rows are returned, the table will only have columns.
-		void QueryTable(unsigned *columnSubset, unsigned numColumnSubset, FilterQuery *inclusionFilters, unsigned numInclusionFilters, unsigned *rowIds, unsigned numRowIDs, Table *result);
+		void QueryTable(unsigned *columnIndicesSubset, unsigned numColumnSubset, FilterQuery *inclusionFilters, unsigned numInclusionFilters, unsigned *rowIds, unsigned numRowIDs, Table *result);
 
 		/// \brief Sorts the table by rows
 		/// You can sort the table in ascending or descending order on one or more columns
@@ -259,8 +283,12 @@ namespace DataStructures
 		/// Direct access to make things easier
 		DataStructures::BPlusTree<unsigned, Row*, _TABLE_BPLUS_TREE_ORDER>& GetRows(void);
 
-		// Get the head of a linked list containing all the row data
+		/// Get the head of a linked list containing all the row data
 		DataStructures::Page<unsigned, DataStructures::Table::Row*, _TABLE_BPLUS_TREE_ORDER> * GetListHead(void);
+
+		/// Get the first free row id.
+		/// This could be made more efficient.
+		unsigned GetAvailableRowId(void) const;
 
 	protected:
 		Table::Row* AddRowColumns(unsigned rowId, Row *row, DataStructures::List<unsigned> columnIndices);

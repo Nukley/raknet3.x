@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -45,6 +45,48 @@ void PacketLogger::OnAttach(RakPeerInterface *peer)
 {
 	rakPeer=peer;
 }
+
+void PacketLogger::FormatLine(
+char* into, const char* dir, const char* type, unsigned int packet, unsigned int frame, unsigned char id
+, unsigned int bitLen, unsigned long long time, const SystemAddress& local, const SystemAddress& remote)
+{
+	char numericID[16];
+	const char* idToPrint = NULL;
+	if(printId)
+		idToPrint =	IDTOString(id);
+	// If printId is false, idToPrint will be NULL, as it will
+	// in the case of an unrecognized id. Testing printId for false
+	// would just be redundant.
+	if(idToPrint == NULL)
+	{
+		sprintf(numericID, "%5u", id);
+		idToPrint = numericID;
+	}
+
+	FormatLine(into, dir, type, packet, frame, idToPrint, bitLen, time, local, remote);
+}
+
+void PacketLogger::FormatLine(
+char* into, const char* dir, const char* type, unsigned int packet, unsigned int frame, const char* idToPrint
+, unsigned int bitLen, unsigned long long time, const SystemAddress& local, const SystemAddress& remote)
+{
+	sprintf(into, "%s%s,%s,%5u,%5u,%s,%u,%"PRINTF_TIME_MODIFIER"u,%u:%u,%u:%u,%s"
+					, prefix
+					, dir
+					, type
+					, packet
+					, frame
+					, idToPrint
+					, bitLen
+					, time
+					, (unsigned int)local.binaryAddress
+					, (unsigned int)local.port
+					, (unsigned int)remote.binaryAddress
+					, (unsigned int)remote.port
+					, suffix
+					);
+}
+
 #ifdef _MSC_VER
 #pragma warning( disable : 4100 ) // warning C4100 : unreferenced formal parameter
 #endif
@@ -55,19 +97,7 @@ void PacketLogger::Update(RakPeerInterface *peer)
 void PacketLogger::OnDirectSocketSend(const char *data, const unsigned bitsUsed, SystemAddress remoteSystemAddress)
 {
 	char str[256];
-	SystemAddress localSystemAddress;
-	localSystemAddress = rakPeer->GetInternalID();
-
-	if (printId==false)
-	{
-		sprintf(str, "%sSnd,Raw,  NIL,  NIL,%5i,%5i,%i,%u:%i,%u:%i%s", prefix, data[0], bitsUsed,RakNet::GetTime(),
-			localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-	}
-	else
-	{
-		sprintf(str, "%sSnd,Raw,NIL,NIL,%s,%i,%i,%u:%i,%u:%i%s", prefix,IDTOString(data[0]), bitsUsed,RakNet::GetTime(),
-			localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-	}
+	FormatLine(str, "Snd", "Raw", 0, 0, data[0], bitsUsed, RakNet::GetTime(), rakPeer->GetInternalID(), remoteSystemAddress);
 	AddToLog(str);
 }
 
@@ -78,32 +108,15 @@ void PacketLogger::LogHeader(void)
 void PacketLogger::OnDirectSocketReceive(const char *data, const unsigned bitsUsed, SystemAddress remoteSystemAddress)
 {
 	char str[256];
-	SystemAddress localSystemAddress;
-	localSystemAddress = rakPeer->GetInternalID();
-	if (printId==false)
-	{
-		sprintf(str, "%sRcv,Raw,  NIL,  NIL,%5i,%5i,%i,%u:%i,%u:%i%s", prefix,data[0], bitsUsed,RakNet::GetTime(),
-			localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-	}
-	else
-	{
-		sprintf(str, "%sRcv,Raw,NIL,NIL,%s,%i,%i,%u:%i,%u:%i%s", prefix,IDTOString(data[0]), bitsUsed,RakNet::GetTime(),
-			localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-	}
-
+	FormatLine(str, "Rcv", "Raw", 0, 0, data[0], bitsUsed, RakNet::GetTime(), rakPeer->GetInternalID(), remoteSystemAddress);
 	AddToLog(str);
 }
+
 void PacketLogger::OnInternalPacket(InternalPacket *internalPacket, unsigned frameNumber, SystemAddress remoteSystemAddress, RakNetTime time, bool isSend)
 {
 	char str[256];
-	char sendType[4];
-	SystemAddress localSystemAddress;
-	localSystemAddress = rakPeer->GetInternalID();
-
-	if (isSend)
-		strcpy(sendType, "Snd");
-	else
-		strcpy(sendType, "Rcv");
+	const char* sendType = (isSend) ? "Snd" : "Rcv";
+	SystemAddress localSystemAddress = rakPeer->GetInternalID();
 
 	// TODO - put this back in a different form
 	/*
@@ -126,48 +139,20 @@ void PacketLogger::OnInternalPacket(InternalPacket *internalPacket, unsigned fra
 	{
 		if (internalPacket->data[0]==ID_TIMESTAMP && internalPacket->data[sizeof(unsigned char)+sizeof(RakNetTime)]!=ID_RPC)
 		{
-			if (printId==false)
-			{
-				sprintf(str, "%s%s,Tms,%5i,%5i,%5i,%5i,%i,%u:%i,%u:%i%s",prefix,sendType, internalPacket->messageNumber,frameNumber,
-					internalPacket->data[1+sizeof(int)], internalPacket->dataBitLength,time,
-					localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-			}
-			else
-			{
-				sprintf(str, "%s%s,Tms,%i,%i,%s,%i,%i,%u:%i,%u:%i%s",prefix,sendType, internalPacket->messageNumber,frameNumber,
-					IDTOString(internalPacket->data[1+sizeof(int)]), internalPacket->dataBitLength,time,
-					localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-			}
-
+			FormatLine(str, sendType, "Tms", internalPacket->messageNumber, frameNumber, internalPacket->data[1+sizeof(int)], internalPacket->dataBitLength, (unsigned long long)time, localSystemAddress, remoteSystemAddress);
 		}
 		else if (internalPacket->data[0]==ID_RPC || (internalPacket->dataBitLength>(sizeof(unsigned char)+sizeof(RakNetTime))*8 && internalPacket->data[0]==ID_TIMESTAMP && internalPacket->data[sizeof(unsigned char)+sizeof(RakNetTime)]==ID_RPC))
 		{
 			const char *uniqueIdentifier = rakPeer->GetRPCString((const char*) internalPacket->data, internalPacket->dataBitLength, isSend==true ? remoteSystemAddress : UNASSIGNED_SYSTEM_ADDRESS);
-
 			
 			if (internalPacket->data[0]==ID_TIMESTAMP)
-				sprintf(str, "%s%s,RpT,%5i,%5i,%s,%5i,%i,%u:%i,%u:%i%s",prefix,sendType, internalPacket->messageNumber,frameNumber,
-				uniqueIdentifier, internalPacket->dataBitLength,time,
-				localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
+				FormatLine(str, sendType, "RpT", internalPacket->messageNumber, frameNumber, uniqueIdentifier, internalPacket->dataBitLength, (unsigned long long)time, localSystemAddress, remoteSystemAddress);
 			else
-				sprintf(str, "%s%s,Rpc,%5i,%5i,%s,%5i,%i,%u:%i,%u:%i%s",prefix,sendType, internalPacket->messageNumber,frameNumber,
-				uniqueIdentifier, internalPacket->dataBitLength,time,
-				localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
+				FormatLine(str, sendType, "Rpc", internalPacket->messageNumber, frameNumber, uniqueIdentifier, internalPacket->dataBitLength, (unsigned long long)time, localSystemAddress, remoteSystemAddress);
 		}
 		else
 		{
-			if (printId==false)
-			{
-				sprintf(str, "%s%s,Nrm,%5i,%5i,%5i,%5i,%i,%u:%i,%u:%i%s",prefix,sendType, internalPacket->messageNumber,frameNumber,
-					internalPacket->data[0], internalPacket->dataBitLength,time,
-					localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-			}
-			else
-			{
-				sprintf(str, "%s%s,Nrm,%i,%i,%s,%i,%i,%u:%i,%u:%i%s",prefix,sendType, internalPacket->messageNumber,frameNumber,
-					IDTOString(internalPacket->data[0]), internalPacket->dataBitLength,time,
-					localSystemAddress.binaryAddress, localSystemAddress.port, remoteSystemAddress.binaryAddress, remoteSystemAddress.port, suffix);
-			}
+			FormatLine(str, sendType, "Nrm", internalPacket->messageNumber, frameNumber, internalPacket->data[0], internalPacket->dataBitLength, (unsigned long long)time, localSystemAddress, remoteSystemAddress);
 		}
 	}
 
@@ -179,7 +164,7 @@ void PacketLogger::AddToLog(const char *str)
 }
 void PacketLogger::WriteLog(const char *str)
 {
-	printf("%s", str);
+	printf("%s\n", str);
 }
 void PacketLogger::SetPrintID(bool print)
 {
@@ -211,6 +196,7 @@ char* PacketLogger::BaseIDTOString(unsigned char Id)
 			"ID_RPC_REPLY",
 			"ID_CONNECTION_REQUEST_ACCEPTED",
 			"ID_CONNECTION_ATTEMPT_FAILED",
+			"ID_ALREADY_CONNECTED",
 			"ID_NEW_INCOMING_CONNECTION",
 			"ID_NO_FREE_INCOMING_CONNECTIONS",
 			"ID_DISCONNECTION_NOTIFICATION",
@@ -225,6 +211,7 @@ char* PacketLogger::BaseIDTOString(unsigned char Id)
 			"ID_REMOTE_DISCONNECTION_NOTIFICATION",
 			"ID_REMOTE_CONNECTION_LOST",
 			"ID_REMOTE_NEW_INCOMING_CONNECTION",
+			"ID_DOWNLOAD_PROGRESS",
 			"ID_FILE_LIST_TRANSFER_HEADER",
 			"ID_FILE_LIST_TRANSFER_FILE",
 			"ID_DDT_DOWNLOAD_REQUEST",
@@ -251,6 +238,7 @@ char* PacketLogger::BaseIDTOString(unsigned char Id)
 			"ID_AUTOPATCHER_GET_PATCH",
 			"ID_AUTOPATCHER_PATCH_LIST",
 			"ID_AUTOPATCHER_REPOSITORY_FATAL_ERROR",
+			"ID_AUTOPATCHER_FINISHED_INTERNAL",
 			"ID_AUTOPATCHER_FINISHED",
 			"ID_AUTOPATCHER_RESTART_APPLICATION",
 			"ID_NAT_PUNCHTHROUGH_REQUEST",
@@ -263,8 +251,12 @@ char* PacketLogger::BaseIDTOString(unsigned char Id)
 			"ID_DATABASE_REMOVE_ROW",
 			"ID_DATABASE_QUERY_REPLY",
 			"ID_DATABASE_UNKNOWN_TABLE",
-			"ID_DATABASE_INCORRECT_PASSWORD"
-
+			"ID_DATABASE_INCORRECT_PASSWORD",
+			"ID_READY_EVENT_SET",
+			"ID_READY_EVENT_UNSET",
+			"ID_READY_EVENT_ALL_SET",
+			"ID_READY_EVENT_QUERY",
+			"ID_LOBBY_GENERAL",
 	};
 
 	return (char*)IDTable[Id];

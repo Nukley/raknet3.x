@@ -27,7 +27,7 @@
 #ifndef RSACRYPT_H
 #define RSACRYPT_H
 
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 
 #define RSASUPPORTGENPRIME
 #include "Export.h"
@@ -36,6 +36,7 @@
 /// #define RSA_BIT_SIZE big::u512
 #define RSA_BIT_SIZE big::u256
 
+#include "RakMemoryOverride.h"
 #include "BigTypes.h"
 #include "Rand.h" //Giblet - added missing include for randomMT()
 
@@ -1062,7 +1063,7 @@ start_squaring:
 
 	//////// RSACrypt class ////////
 
-	BIGONETYPE class RAK_DLL_EXPORT RSACrypt
+	BIGONETYPE class RAK_DLL_EXPORT RSACrypt : public RakNet::RakMemoryOverride
 	{
 		// public key
 		T e, n;
@@ -1249,7 +1250,7 @@ start_squaring:
 #pragma warning( pop )
 #endif
 
-#endif // #if !defined(_COMPATIBILITY_1)
+#endif // #if !defined(_CONSOLE_1)
 
 #endif // RSACRYPT_H
 

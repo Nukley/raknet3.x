@@ -76,7 +76,7 @@ void ConsoleServer::RemoveCommandParser(CommandParserInterface *commandParserInt
 		if (commandParserList[i]==commandParserInterface)
 		{
 			commandParserList[i]=commandParserList[commandParserList.Size()-1];
-			commandParserList.Del();
+			commandParserList.RemoveFromEnd();
 			return;
 		}
 	}

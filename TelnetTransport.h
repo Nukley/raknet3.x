@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -42,6 +42,8 @@ public:
 	SystemAddress HasNewConnection(void);
 	SystemAddress HasLostConnection(void);
 	CommandParserInterface* GetCommandParser(void);
+	void SetSendSuffix(const char *suffix);
+	void SetSendPrefix(const char *prefix);
 protected:
 
 	struct TelnetClient
@@ -57,6 +59,9 @@ protected:
 
 	// Crap this sucks but because windows telnet won't send line at a time, I have to reconstruct the lines at the server per player
 	DataStructures::List<TelnetClient*> remoteClients;
+
+	char *sendSuffix, *sendPrefix;
+
 };
 
 #endif

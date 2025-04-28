@@ -4,6 +4,7 @@
 #include "DS_MemoryPool.h"
 #include "DS_Queue.h"
 #include <stdio.h>
+#include "Export.h"
 
 // Java
 // http://www.seanster.com/BplusTree/BplusTree.html
@@ -18,13 +19,16 @@
 #pragma warning( push )
 #endif
 
+#include "RakMemoryOverride.h"
+
 /// The namespace DataStructures was only added to avoid compiler errors for commonly named data structures
 /// As these data structures are stand-alone, you can use them outside of RakNet for your own projects if you wish.
 namespace DataStructures
 {
 	/// Used in the BPlusTree.  Used for both leaf and index nodes.
+	/// Don't use a constructor or destructor, due to the memory pool I am using
 	template <class KeyType, class DataType, int order>
-	struct Page
+	struct RAK_DLL_EXPORT Page : public RakNet::RakMemoryOverride
 	{
 		// We use the same data structure for both leaf and index nodes.  It uses a little more memory for index nodes but reduces
 		// memory fragmentation, allocations, and deallocations.
@@ -50,7 +54,7 @@ namespace DataStructures
 	/// A BPlus tree
 	/// Written with efficiency and speed in mind.
 	template <class KeyType, class DataType, int order>
-	class BPlusTree
+	class RAK_DLL_EXPORT BPlusTree : public RakNet::RakMemoryOverride
 	{
 	public:
 		struct ReturnAction
@@ -68,11 +72,11 @@ namespace DataStructures
 
 		BPlusTree();
 		~BPlusTree();
+		void SetPoolPageSize(int size); // Set the page size for the memory pool.  Optionsl
 		bool Get(const KeyType key, DataType &out) const;
 		bool Delete(const KeyType key);
 		bool Delete(const KeyType key, DataType &out);
 		bool Insert(const KeyType key, const DataType &data);
-		void Preallocate(const int size);
 		void Clear(void);
 		unsigned Size(void) const;
 		bool IsEmpty(void) const;
@@ -117,6 +121,11 @@ namespace DataStructures
 		BPlusTree<KeyType, DataType, order>::~BPlusTree ()
 	{
 		Clear();
+	}
+	template<class KeyType, class DataType, int order>
+	void BPlusTree<KeyType, DataType, order>::SetPoolPageSize(int size)
+	{
+		pagePool.SetPageSize(size);
 	}
 	template<class KeyType, class DataType, int order>
 	bool BPlusTree<KeyType, DataType, order>::Get(const KeyType key, DataType &out) const
@@ -177,7 +186,6 @@ namespace DataStructures
 			if (root->size==0)
 			{
 				pagePool.Release(root);
-				memset(root,0,sizeof(root));
 				root=0;
 				leftmostLeaf=0;
 			}
@@ -194,7 +202,7 @@ namespace DataStructures
 			Page<KeyType, DataType, order> *oldRoot=root;
 			root=root->children[0];
 			pagePool.Release(oldRoot);
-			memset(oldRoot,0,sizeof(root));
+			// memset(oldRoot,0,sizeof(root));
 		}		
 	
 		return true;
@@ -448,7 +456,7 @@ namespace DataStructures
 
 			// Free the source node
 			pagePool.Release(source);
-			memset(source,0,sizeof(root));
+			// memset(source,0,sizeof(root));
 
 			// Return underflow or not of parent.
 			return cur->size < order/2;
@@ -852,11 +860,6 @@ namespace DataStructures
 		return true;
 	}
 	template<class KeyType, class DataType, int order>
-	void BPlusTree<KeyType, DataType, order>::Preallocate(const int size)
-	{
-		pagePool.Preallocate(size);
-	}
-	template<class KeyType, class DataType, int order>
 	void BPlusTree<KeyType, DataType, order>::ShiftKeysLeft(Page<KeyType, DataType, order> *cur)
 	{
 		int i;
@@ -872,6 +875,7 @@ namespace DataStructures
 			leftmostLeaf=0;
 			root=0;
 		}
+		pagePool.Clear();
 	}
 	template<class KeyType, class DataType, int order>
 		unsigned BPlusTree<KeyType, DataType, order>::Size(void) const
@@ -939,7 +943,7 @@ namespace DataStructures
 					queue.Push(ptr->children[i]);
 			}			
 			pagePool.Release(ptr);
-			memset(ptr,0,sizeof(root));
+		//	memset(ptr,0,sizeof(root));
 		};
 	}
 	template<class KeyType, class DataType, int order>
@@ -1152,6 +1156,6 @@ void main(void)
 
 	printf("Done. %i\n", btree.Size());
 	char ch[256];
-	gets(ch);
+	fgets(ch, sizeof(ch), stdin);
 }
 */

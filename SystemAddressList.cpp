@@ -70,7 +70,7 @@ void SystemAddressList::RemoveSystem(SystemAddress system)
 	{
 		if (systemList[i]==system)
 		{
-			systemList.Del(i);
+			systemList.RemoveAtIndex(i);
 			return;
 		}
 	}
@@ -108,13 +108,13 @@ bool SystemAddressList::Load(const char *filename)
 		fclose(fp);
 		return false;
 	}
-	unsigned char *filedata = new unsigned char [fileSize];
+	unsigned char *filedata = (unsigned char*) rakMalloc( fileSize );
 	fread(filedata, fileSize, 1, fp);
 	fclose(fp);
 
 	RakNet::BitStream bs(filedata, fileSize, false);
 	Deserialize(&bs);
-	delete [] filedata;
+	rakFree(filedata);
 	return true;
 }
 unsigned SystemAddressList::Size(void) const

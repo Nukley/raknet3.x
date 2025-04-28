@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,6 +18,7 @@
 #ifndef __COMMAND_PARSER_INTERFACE
 #define __COMMAND_PARSER_INTERFACE
 
+#include "RakMemoryOverride.h"
 #include "RakNetTypes.h"
 #include "DS_OrderedList.h"
 #include "Export.h"
@@ -40,7 +41,7 @@ int RAK_DLL_EXPORT RegisteredCommandComp( const char* const & key, const Registe
 /// CommandParserInterface provides a set of functions and interfaces that plug into the ConsoleServer class.
 /// Each CommandParserInterface works at the same time as other interfaces in the system.
 /// \brief The interface used by command parsers.
-class RAK_DLL_EXPORT CommandParserInterface
+class RAK_DLL_EXPORT CommandParserInterface : public RakNet::RakMemoryOverride
 {
 public:
 	CommandParserInterface();

@@ -29,7 +29,7 @@
 #ifndef BIGTYPES_H
 #define BIGTYPES_H
 
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 
 #include "Types.h"
 
@@ -1743,7 +1743,11 @@ namespace big
 	
 	BIGONETYPE BIGINTFAST Int<T>::operator%=( T &n )
 	{
+#if (defined(__GNUC__)  || defined(__GCCXML__))
+		smodulus( raw, n, raw );
+#else
 		modulus( raw, n, raw );
+#endif
 		return *this;
 	}
 	
@@ -1811,7 +1815,7 @@ namespace big
 #endif // BIG_USES_STRINGS
 }
 
-#endif // #if !defined(_COMPATIBILITY_1)
+#endif // #if !defined(_CONSOLE_1)
 
 #endif // BIGTYPES_H
 

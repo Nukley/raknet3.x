@@ -37,40 +37,44 @@ void NatPunchthrough::FacilitateConnections(bool allow)
 {
 	allowFacilitation=allow;
 }
-bool NatPunchthrough::Connect(const char* host, unsigned short remotePort, char* passwordData, int passwordDataLength, SystemAddress facilitator)
+bool NatPunchthrough::Connect(const char* destination, unsigned short remotePort, const char *passwordData, int passwordDataLength, SystemAddress facilitator)
 {
 	SystemAddress systemAddress;
-	systemAddress.SetBinaryAddress(host);
+	systemAddress.SetBinaryAddress(destination);
 	systemAddress.port=remotePort;
 	return Connect(systemAddress, passwordData, passwordDataLength, facilitator);
 }
-bool NatPunchthrough::Connect(SystemAddress receiver, char* passwordData, int passwordDataLength, SystemAddress facilitator)
+bool NatPunchthrough::Connect(SystemAddress destination, const char *passwordData, int passwordDataLength, SystemAddress facilitator)
 {
-	if (rakPeer->GetIndexFromSystemAddress(facilitator)==-1)
+	if (rakPeer->IsConnected(facilitator)==false)
 		return false;
 
 	RakNet::BitStream outBitstream;
 	outBitstream.Write((MessageID)ID_NAT_PUNCHTHROUGH_REQUEST);
-	outBitstream.Write(receiver);
+	// http://www.bford.info/pub/net/p2pnat/
+	// A few poorly behaved NATs are known to scan the body of UDP datagrams for 4-byte fields that look like IP addresses, and translate them as they would the IP address fields in the IP header.
+	outBitstream.Write(true);
+	outBitstream.Write(destination);
 
 	// Remember this connection request
 	NatPunchthrough::ConnectionRequest *connectionRequest = new NatPunchthrough::ConnectionRequest;
-	connectionRequest->receiver=receiver;
+	connectionRequest->receiverPublic=destination;
 	connectionRequest->facilitator=facilitator;
 	if (passwordDataLength)
 	{
-		connectionRequest->passwordData = new char [passwordDataLength];
+		connectionRequest->passwordData = (char*) rakMalloc( passwordDataLength );
 		memcpy(connectionRequest->passwordData, passwordData, passwordDataLength);
 	}
 	else
 		connectionRequest->passwordData = 0;
-	connectionRequest->sender=UNASSIGNED_SYSTEM_ADDRESS;
+	connectionRequest->senderPublic=UNASSIGNED_SYSTEM_ADDRESS;
 	connectionRequest->passwordDataLength=passwordDataLength;
 	connectionRequest->facilitator=facilitator;
 	connectionRequest->nextActionTime=0;
 	connectionRequest->facilitatingConnection=false;
 	connectionRequest->timeoutTime=RakNet::GetTime()+30000;
 	connectionRequest->pingCount=0;
+	connectionRequest->attemptedConnection=false;
 	connectionRequestList.Insert(connectionRequest);
 
 	rakPeer->Send(&outBitstream, HIGH_PRIORITY, RELIABLE, 0, facilitator, false);
@@ -82,7 +86,7 @@ void NatPunchthrough::Clear(void)
 	unsigned i;
 	for (i=0; i < connectionRequestList.Size(); i++)
 	{
-		delete [] connectionRequestList[i]->passwordData;
+		rakFree(connectionRequestList[i]->passwordData);
 		delete connectionRequestList[i];
 	}
 	connectionRequestList.Clear();
@@ -107,7 +111,7 @@ void NatPunchthrough::Update(RakPeerInterface *peer)
 			// Remove old connection requests that get no answer
 			if (connectionRequestList[i]->timeoutTime < time)
 			{
-				delete [] connectionRequestList[i]->passwordData;
+				rakFree(connectionRequestList[i]->passwordData);
 				delete connectionRequestList[i];
 				connectionRequestList.RemoveAtIndex(i);
 				continue;
@@ -122,16 +126,16 @@ void NatPunchthrough::Update(RakPeerInterface *peer)
 					{
 						// Ping
 						connectionRequestList[i]->pingCount++;
-						rakPeer->Ping(connectionRequestList[i]->receiver);
-						rakPeer->Ping(connectionRequestList[i]->sender);
+						rakPeer->Ping(connectionRequestList[i]->receiverPublic);
+						rakPeer->Ping(connectionRequestList[i]->senderPublic);
 						connectionRequestList[i]->nextActionTime=time+PING_INTERVAL;
 					}
 					else if (connectionRequestList[i]->pingCount == PING_COUNT)
 					{
 						// Done pinging.  Wait till the next stage
 						int receiverPing, senderPing;
-						receiverPing=rakPeer->GetAveragePing(connectionRequestList[i]->receiver);
-						senderPing=rakPeer->GetAveragePing(connectionRequestList[i]->sender);
+						receiverPing=rakPeer->GetAveragePing(connectionRequestList[i]->receiverPublic);
+						senderPing=rakPeer->GetAveragePing(connectionRequestList[i]->senderPublic);
 						if (receiverPing > senderPing)
 							connectionRequestList[i]->nextActionTime=(RakNetTime)(receiverPing*SEND_TIMESTAMP_DELAY_PING_MULTIPLE);
 						else
@@ -143,8 +147,8 @@ void NatPunchthrough::Update(RakPeerInterface *peer)
 						// Send the timestamped message to both systems so they send datagrams to each other simultaneously
 						int receiverPing, senderPing;
 						RakNetTime delayTime;
-						receiverPing=rakPeer->GetAveragePing(connectionRequestList[i]->receiver);
-						senderPing=rakPeer->GetAveragePing(connectionRequestList[i]->sender);
+						receiverPing=rakPeer->GetAveragePing(connectionRequestList[i]->receiverPublic);
+						senderPing=rakPeer->GetAveragePing(connectionRequestList[i]->senderPublic);
 						if (receiverPing > senderPing)
 							delayTime=(RakNetTime)(receiverPing*SEND_PUNCHTHROUGH_DELAY_PING_MULTIPLE);
 						else
@@ -154,14 +158,19 @@ void NatPunchthrough::Update(RakPeerInterface *peer)
 						outBitstream.Write((MessageID)ID_TIMESTAMP);
 						outBitstream.Write(time+delayTime);
 						outBitstream.Write((MessageID)ID_NAT_CONNECT_AT_TIME);
-						rakPeer->Send(&outBitstream, SYSTEM_PRIORITY, RELIABLE, 0, connectionRequestList[i]->sender, false);
+						outBitstream.Write(true);
+						outBitstream.Write(rakPeer->GetInternalID(connectionRequestList[i]->receiverPublic));
+						rakPeer->Send(&outBitstream, SYSTEM_PRIORITY, RELIABLE, 0, connectionRequestList[i]->senderPublic, false);
 
 						outBitstream.Reset();
 						outBitstream.Write((MessageID)ID_TIMESTAMP);
 						outBitstream.Write(time+delayTime);
 						outBitstream.Write((MessageID)ID_NAT_SEND_OFFLINE_MESSAGE_AT_TIME);
-						outBitstream.Write(connectionRequestList[i]->sender);
-						rakPeer->Send(&outBitstream, SYSTEM_PRIORITY, RELIABLE, 0, connectionRequestList[i]->receiver, false);
+						// A few poorly behaved NATs are known to scan the body of UDP datagrams for 4-byte fields that look like IP addresses, and translate them as they would the IP address fields in the IP header.
+						outBitstream.Write(true);
+						outBitstream.Write(connectionRequestList[i]->senderPublic);
+						outBitstream.Write(rakPeer->GetInternalID(connectionRequestList[i]->senderPublic));
+						rakPeer->Send(&outBitstream, SYSTEM_PRIORITY, RELIABLE, 0, connectionRequestList[i]->receiverPublic, false);
 
 						delete [] connectionRequestList[i]->passwordData;
 						delete connectionRequestList[i];
@@ -171,25 +180,39 @@ void NatPunchthrough::Update(RakPeerInterface *peer)
 				}	
 			}
 			// Else not a facilitator.  If nextActionTime is non-zero, connect or send the offline message
-			else if (connectionRequestList[i]->nextActionTime && time >= connectionRequestList[i]->nextActionTime)
+			else if (connectionRequestList[i]->nextActionTime && time >= connectionRequestList[i]->nextActionTime && connectionRequestList[i]->attemptedConnection==false)
 			{
-				if (connectionRequestList[i]->receiver!=UNASSIGNED_SYSTEM_ADDRESS)
+				if (connectionRequestList[i]->receiverPublic!=UNASSIGNED_SYSTEM_ADDRESS)
 				{
 					// Connect to this system.
-					rakPeer->Connect(connectionRequestList[i]->receiver.ToString(false), connectionRequestList[i]->receiver.port, connectionRequestList[i]->passwordData, connectionRequestList[i]->passwordDataLength);
+					rakPeer->Connect(connectionRequestList[i]->receiverPublic.ToString(false), connectionRequestList[i]->receiverPublic.port, connectionRequestList[i]->passwordData, connectionRequestList[i]->passwordDataLength);
+					connectionRequestList[i]->attemptedConnection=true;
+					
+					if (connectionRequestList[i]->receiverPrivate==connectionRequestList[i]->receiverPublic)
+					{
+						// Otherwise done with this connection, as it's a normal connection attempt
+						rakFree(connectionRequestList[i]->passwordData);
+						delete connectionRequestList[i];
+						connectionRequestList.RemoveAtIndex(i);
+						continue;
+					}
 				}
 				else
 				{
-					RakAssert(connectionRequestList[i]->sender!=UNASSIGNED_SYSTEM_ADDRESS);
+					RakAssert(connectionRequestList[i]->senderPublic!=UNASSIGNED_SYSTEM_ADDRESS);
 
 					// Send offline message to this system, hopefully at the exact same time that system tries to connect to us.
-					rakPeer->Ping(connectionRequestList[i]->sender.ToString(false), connectionRequestList[i]->sender.port, false);
-				}
+					rakPeer->Ping(connectionRequestList[i]->senderPublic.ToString(false), connectionRequestList[i]->senderPublic.port, false);
 
-				delete [] connectionRequestList[i]->passwordData;
-				delete connectionRequestList[i];
-				connectionRequestList.RemoveAtIndex(i);
-				continue;
+					if (connectionRequestList[i]->senderPrivate!=connectionRequestList[i]->senderPublic)
+						rakPeer->Ping(connectionRequestList[i]->senderPrivate.ToString(false), connectionRequestList[i]->senderPrivate.port, false);
+
+					rakFree(connectionRequestList[i]->passwordData);
+					delete connectionRequestList[i];
+					connectionRequestList.RemoveAtIndex(i);
+
+					continue;
+				}
 			}
 			
 			i++;
@@ -213,6 +236,10 @@ PluginReceiveResult NatPunchthrough::OnReceive(RakPeerInterface *peer, Packet *p
 	case ID_NAT_TARGET_NOT_CONNECTED:
 		// Sender only
 		return RemoveRequestByFacilitator(packet->systemAddress);
+	case ID_CONNECTION_ATTEMPT_FAILED:
+		return OnConnectionAttemptFailed(packet);
+	case ID_CONNECTION_REQUEST_ACCEPTED:
+		return OnConnectionRequestAccepted(packet);
 	case ID_NAT_CONNECT_AT_TIME:
 		OnConnectAtTime(peer, packet);
 		return RR_STOP_PROCESSING_AND_DEALLOCATE; // Absorb
@@ -222,7 +249,7 @@ PluginReceiveResult NatPunchthrough::OnReceive(RakPeerInterface *peer, Packet *p
 	case ID_DISCONNECTION_NOTIFICATION:
 	case ID_CONNECTION_LOST:
 		OnCloseConnection(peer, packet->systemAddress);
-		return RR_CONTINUE_PROCESSING;
+		break;
 	}
 
 	return RR_CONTINUE_PROCESSING;
@@ -243,21 +270,21 @@ void NatPunchthrough::OnCloseConnection(RakPeerInterface *peer, SystemAddress sy
 		while (i < connectionRequestList.Size())
 		{
 			if (connectionRequestList[i]->facilitatingConnection &&
-				(connectionRequestList[i]->receiver==systemAddress ||
-				connectionRequestList[i]->sender==systemAddress))
+				(connectionRequestList[i]->receiverPublic==systemAddress ||
+				connectionRequestList[i]->senderPublic==systemAddress))
 			{
 				// This field is not used by the facilitator.
 				RakAssert(connectionRequestList[i]->passwordData==0);
 
-				if (connectionRequestList[i]->sender==systemAddress)
+				if (connectionRequestList[i]->senderPublic==systemAddress)
 				{
 					RakNet::BitStream outBitstream;
 					outBitstream.Write((MessageID)ID_NAT_TARGET_CONNECTION_LOST);
-					outBitstream.Write(connectionRequestList[i]->receiver);
-					rakPeer->Send(&outBitstream, HIGH_PRIORITY, RELIABLE, 0, connectionRequestList[i]->sender, false);
+					outBitstream.Write(connectionRequestList[i]->receiverPublic);
+					rakPeer->Send(&outBitstream, HIGH_PRIORITY, RELIABLE, 0, connectionRequestList[i]->senderPublic, false);
 				}
 
-				delete [] connectionRequestList[i]->passwordData;
+				rakFree(connectionRequestList[i]->passwordData);
 				delete connectionRequestList[i];
 				connectionRequestList.RemoveAtIndex(i);
 			}
@@ -281,16 +308,70 @@ PluginReceiveResult NatPunchthrough::RemoveRequestByFacilitator(SystemAddress sy
 	{
 		if (connectionRequestList[i]->facilitator==systemAddress)
 		{
-			delete [] connectionRequestList[i]->passwordData;
+			// Might be trying to connect to an internal address.
+			rakPeer->Connect(connectionRequestList[i]->receiverPublic.ToString(false), connectionRequestList[i]->receiverPublic.port, connectionRequestList[i]->passwordData, connectionRequestList[i]->passwordDataLength);
+
+			rakFree(connectionRequestList[i]->passwordData);
 			delete connectionRequestList[i];
 			connectionRequestList.RemoveAtIndex(i);
-			return RR_CONTINUE_PROCESSING;
+			// return RR_CONTINUE_PROCESSING;
+			break;
 		}
 		else
 			i++;
 	}
 	return RR_STOP_PROCESSING_AND_DEALLOCATE;
 }
+PluginReceiveResult NatPunchthrough::OnConnectionAttemptFailed(Packet *packet)
+{
+	unsigned i;
+	i=0;
+	while (i < connectionRequestList.Size())
+	{
+		if (connectionRequestList[i]->receiverPublic==packet->systemAddress)
+		{
+			// Try the private address instead
+			rakPeer->Connect(connectionRequestList[i]->receiverPrivate.ToString(false), connectionRequestList[i]->receiverPrivate.port, connectionRequestList[i]->passwordData, connectionRequestList[i]->passwordDataLength);
+			return RR_STOP_PROCESSING_AND_DEALLOCATE;
+		}
+		else if (connectionRequestList[i]->receiverPrivate==packet->systemAddress)
+		{
+			// Private failed too, give up.
+			rakFree(connectionRequestList[i]->passwordData);
+			delete connectionRequestList[i];
+
+			// Both attempts failed, return the notification
+			packet->systemAddress=connectionRequestList[i]->receiverPublic;
+			connectionRequestList.RemoveAtIndex(i);
+			return RR_CONTINUE_PROCESSING;
+		}
+
+		i++;
+	}
+	return RR_CONTINUE_PROCESSING;
+}
+PluginReceiveResult NatPunchthrough::OnConnectionRequestAccepted(Packet *packet)
+{
+	unsigned i;
+	i=0;
+	while (i < connectionRequestList.Size())
+	{
+		if (connectionRequestList[i]->receiverPublic==packet->systemAddress ||
+			connectionRequestList[i]->receiverPrivate==packet->systemAddress)
+		{
+			rakFree(connectionRequestList[i]->passwordData);
+			delete connectionRequestList[i];
+			connectionRequestList.RemoveAtIndex(i);
+			return RR_CONTINUE_PROCESSING;
+		}
+
+		i++;
+	}
+
+	// return to user
+	return RR_CONTINUE_PROCESSING;
+}
+
 #ifdef _MSC_VER
 #pragma warning( disable : 4100 ) // warning C4100: <variable name> : unreferenced formal parameter
 #endif
@@ -299,26 +380,27 @@ void NatPunchthrough::OnPunchthroughRequest(RakPeerInterface *peer, Packet *pack
 	if (allowFacilitation==false)
 		return;
 
-	SystemAddress target;
+	SystemAddress targetPublic;
 	RakNet::BitStream inBitstream(packet->data, packet->length, false);
 	RakNet::BitStream outBitstream;
 	inBitstream.IgnoreBits(8);
-	if (inBitstream.Read(target)==false)
+	inBitstream.IgnoreBits(1);
+	if (inBitstream.Read(targetPublic)==false)
 		return;
-	if (rakPeer->GetIndexFromSystemAddress(target)==-1)
+	if (rakPeer->IsConnected(targetPublic)==false)
 	{
 		outBitstream.Write((MessageID)ID_NAT_TARGET_NOT_CONNECTED);
-		outBitstream.Write(target);
+		outBitstream.Write(targetPublic);
 		rakPeer->Send(&outBitstream, HIGH_PRIORITY, RELIABLE, 0, packet->systemAddress, false);
 	}
 	else
 	{
 		// Remember this connection request
 		NatPunchthrough::ConnectionRequest *connectionRequest = new NatPunchthrough::ConnectionRequest;
-		connectionRequest->receiver=target;
+		connectionRequest->receiverPublic=targetPublic;
 		connectionRequest->facilitator=UNASSIGNED_SYSTEM_ADDRESS;
 		connectionRequest->passwordData = 0;
-		connectionRequest->sender=packet->systemAddress;
+		connectionRequest->senderPublic=packet->systemAddress;
 		connectionRequest->passwordDataLength=0;
 		connectionRequest->facilitatingConnection=true;
 		connectionRequest->nextActionTime=RakNet::GetTime()+PING_INTERVAL;
@@ -326,8 +408,8 @@ void NatPunchthrough::OnPunchthroughRequest(RakPeerInterface *peer, Packet *pack
 		connectionRequest->timeoutTime=RakNet::GetTime()+30000;
 		connectionRequestList.Insert(connectionRequest);
 
-		rakPeer->Ping(connectionRequest->receiver);
-		rakPeer->Ping(connectionRequest->sender);
+		rakPeer->Ping(connectionRequest->receiverPublic);
+		rakPeer->Ping(connectionRequest->senderPublic);
 	}
 }
 #ifdef _MSC_VER
@@ -343,9 +425,18 @@ void NatPunchthrough::OnConnectAtTime(RakPeerInterface *peer, Packet *packet)
 			connectionRequestList[i]->facilitatingConnection==false &&
 			connectionRequestList[i]->facilitator==packet->systemAddress)
 		{
+			// Send a message at the router to the remote system, to open up the firewall / NAT
+			peer->SendTTL2(connectionRequestList[i]->receiverPublic.ToString(false), connectionRequestList[i]->receiverPublic.port, 0);
+			
 			RakNet::BitStream inBitstream(packet->data, packet->length, false);
 			inBitstream.IgnoreBits(8);
 			inBitstream.Read(connectionRequestList[i]->nextActionTime);
+			inBitstream.IgnoreBits(8);
+			inBitstream.IgnoreBits(1);
+			inBitstream.Read(connectionRequestList[i]->receiverPrivate);
+
+			peer->SendTTL2(connectionRequestList[i]->receiverPrivate.ToString(false), connectionRequestList[i]->receiverPrivate.port, 0);
+
 			return;
 		}
 	}
@@ -358,16 +449,20 @@ void NatPunchthrough::OnSendOfflineMessageAtTime(RakPeerInterface *peer, Packet 
 	RakNet::BitStream inBitstream(packet->data, packet->length, false);
 	RakNetTime nextActionTime;
 	inBitstream.IgnoreBits(8);
-	SystemAddress sender;
+	SystemAddress senderPublic, senderPrivate;
 	inBitstream.Read(nextActionTime);
 	inBitstream.IgnoreBits(8);
-	if (inBitstream.Read(sender)==false)
+	inBitstream.IgnoreBits(1);
+	inBitstream.Read(senderPublic);
+	if (inBitstream.Read(senderPrivate)==false)
 		return;
 
 	NatPunchthrough::ConnectionRequest *connectionRequest = new NatPunchthrough::ConnectionRequest;
-	connectionRequest->receiver=UNASSIGNED_SYSTEM_ADDRESS;
+	connectionRequest->receiverPublic=UNASSIGNED_SYSTEM_ADDRESS;
+	connectionRequest->receiverPrivate=UNASSIGNED_SYSTEM_ADDRESS;
 	connectionRequest->facilitator=packet->systemAddress;
-	connectionRequest->sender=sender;
+	connectionRequest->senderPublic=senderPublic;
+	connectionRequest->senderPrivate=senderPrivate;
 	connectionRequest->passwordData = 0;
 	connectionRequest->passwordDataLength=0;
 	connectionRequest->facilitatingConnection=false;
@@ -375,6 +470,10 @@ void NatPunchthrough::OnSendOfflineMessageAtTime(RakPeerInterface *peer, Packet 
 	connectionRequest->pingCount=0;
 	connectionRequest->timeoutTime=RakNet::GetTime()+30000;
 	connectionRequestList.Insert(connectionRequest);
+
+	// Send a message at the router to the remote system, to open up the firewall / NAT
+	peer->SendTTL2(senderPublic.ToString(false),senderPublic.port, 0);
+	peer->SendTTL2(senderPrivate.ToString(false),senderPrivate.port, 0);
 }
 
 #ifdef _MSC_VER

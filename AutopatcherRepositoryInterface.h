@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -42,8 +42,9 @@ public:
 	/// \param[in] applicationName A null terminated string identifying the application
 	/// \param[in] input A list of files with SHA1_LENGTH byte hashes to get from the database.
 	/// \param[out] patchList You should return list of files with either the filedata or the patch.  This is a subset of \a input.  The context data for each file will be either PC_WRITE_FILE (to just write the file) or PC_HASH_WITH_PATCH (to patch).  If PC_HASH_WITH_PATCH, then the file contains a SHA1_LENGTH byte patch followed by the hash.  The datalength is patchlength + SHA1_LENGTH
+	/// \param[out] currentDate The current server date, in whatever format your repository uses
 	/// \return True on success, false on failure.
-	virtual bool GetPatches(const char *applicationName, FileList *input, FileList *patchList)=0;
+	virtual bool GetPatches(const char *applicationName, FileList *input, FileList *patchList, char currentDate[64])=0;
 
 	/// \return Whatever this function returns is sent from the AutopatcherServer to the AutopatcherClient when one of the above functions returns false.
 	virtual char *GetLastError(void) const=0;

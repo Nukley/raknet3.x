@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -53,14 +53,14 @@ public:
 	/// \param[in] numRowIDs The number of elements in the rowIds array
 	/// \param[in] systemAddress Which system to send to.
 	/// \param[in] broadcast Broadcast or not.  Same as the parameter in RakPeer::Send
-	void QueryTable(const char *tableName, const char *queryPassword, const char **columnSubset, unsigned char numColumnSubset, DatabaseFilter *filter, unsigned char numFilters, unsigned *rowIds, unsigned char numRowIDs, SystemAddress systemAddress, bool broadcast);
+	void QueryTable(const char *tableName, const char *queryPassword, const char **columnNamesSubset, unsigned char numColumnSubset, DatabaseFilter *filter, unsigned char numFilters, unsigned *rowIds, unsigned char numRowIDs, SystemAddress systemAddress, bool broadcast);
 
 	/// Sets one or more values in a new or existing row, assuming the server allows row creation and updates.
 	/// No response is returned by the server.
 	/// \param[in] tableName String name of the remote table. Case sensitive.
 	/// \param[in] updatePassword Password to update the remote table, if any.
 	/// \param[in] updateMode See RowUpdateMode in LightweightDatabaseCommon.h .  This determines if to update an existing or new row.
-	/// \param[in] hasRowId True if a valid value was passed for \a rowId, false otherwise.  Required to be true for updating an existing row.  Required if adding a new row and the remote system does not automatically create rowIDs.
+	/// \param[in] hasRowId True if a valid value was passed for \a rowId, false otherwise. If false, will lookup the row by system address.  Required if adding a new row and the remote system does not automatically create rowIDs.
 	/// \param[in] rowId The rowID of the new or existing row.
 	/// \param[in] cellUpdates An array of DatabaseCellUpdate structures containing the values to write to the remote row.
 	/// \param[in] numCellUpdates The number of elements in the cellUpdates array

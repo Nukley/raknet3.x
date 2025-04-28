@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -20,11 +20,7 @@
 
 #include "PacketPriority.h"
 #include "RakNetTypes.h"
-
-
-/// This is the counter used for holding ordered packet numbers, so we can detect out-of-order packets.  It should be large enough that if the variables
-/// were to wrap, the newly wrapped values would no longer be in use.  Warning: Too large of a value wastes bandwidth!
-typedef unsigned short OrderingIndexType;
+#include "RakMemoryOverride.h"
 
 typedef unsigned short SplitPacketIdType;
 typedef unsigned int SplitPacketIndexType;
@@ -37,16 +33,27 @@ typedef unsigned int SplitPacketIndexType;
 /// unsigned char - 25.5 packets per second
 /// unsigned short - 6553.5 packets per second
 /// unsigned int - You'll run out of memory first.
-typedef unsigned short MessageNumberType;
+typedef unsigned int MessageNumberType;
+
+/// This is the counter used for holding ordered packet numbers, so we can detect out-of-order packets.  It should be large enough that if the variables
+/// were to wrap, the newly wrapped values would no longer be in use.  Warning: Too large of a value wastes bandwidth!
+typedef MessageNumberType OrderingIndexType;
+
+typedef RakNetTime RemoteSystemTimeType;
 
 /// Holds a user message, and related information
-struct InternalPacket
+/// Don't use a constructor or destructor, due to the memory pool I am using
+struct InternalPacket : public RakNet::RakMemoryOverride//<InternalPacket>
 {
 	///True if this is an acknowledgment packet
 	//bool isAcknowledgement;
 	
 	///A unique numerical identifier given to this user message
 	MessageNumberType messageNumber;
+	/// Has this message number been assigned yet?  We don't assign until the message is actually sent.
+	/// This fixes a bug where pre-determining message numbers and then sending a message on a different channel creates a huge gap.
+	/// This causes performance problems and causes those messages to timeout.
+	bool messageNumberAssigned;
 	/// Used only for tracking packetloss and windowing internally, this is the aggreggate packet number that a message was last sent in
 	unsigned packetNumber;
 	/// Was this packet number used this update to track windowing drops or increases?  Each packet number is only used once per update.
@@ -69,12 +76,13 @@ struct InternalPacket
 	RakNetTimeNS creationTime;
 	///The next time to take action on this packet
 	RakNetTimeNS nextActionTime;
+	// If this was a reliable packet, it included the ping time, to be sent back in an ack
+	//RakNetTimeNS remoteSystemTime;
+	//RemoteSystemTimeType remoteSystemTime;
 	///How many bits the data is
 	unsigned int dataBitLength;
 	///Buffer is a pointer to the actual data, assuming this packet has data at all
 	unsigned char *data;
-	/// For checking packetloss at a particular send rate
-	unsigned histogramMarker;
 };
 
 #endif

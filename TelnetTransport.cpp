@@ -19,10 +19,16 @@
 TelnetTransport::TelnetTransport()
 {
 	tcpInterface=0;
+	sendSuffix=0;
+	sendPrefix=0;
 }
 TelnetTransport::~TelnetTransport()
 {
 	Stop();
+	if (sendSuffix)
+		rakFree(sendSuffix);
+	if (sendPrefix)
+		rakFree(sendPrefix);
 }
 #ifdef _MSC_VER
 #pragma warning( disable : 4100 ) // warning C4100: <variable name> : unreferenced formal parameter
@@ -47,11 +53,29 @@ void TelnetTransport::Send(  SystemAddress systemAddress, const char *data,... )
 	if (tcpInterface==0) return;
 
 	char text[REMOTE_MAX_TEXT_INPUT];
+	size_t prefixLength;
+	if (sendPrefix)
+	{
+		strcpy(text, sendPrefix);
+		prefixLength = strlen(sendPrefix);
+	}
+	else
+	{
+		text[0]=0;
+		prefixLength=0;
+	}
 	va_list ap;
 	va_start(ap, data);
-	_vsnprintf(text, REMOTE_MAX_TEXT_INPUT, data, ap);
+	_vsnprintf(text+prefixLength, REMOTE_MAX_TEXT_INPUT-prefixLength, data, ap);
 	va_end(ap);
 	text[REMOTE_MAX_TEXT_INPUT-1]=0;
+
+	if (sendSuffix)
+	{
+		size_t length = strlen(text);
+		size_t availableChars = REMOTE_MAX_TEXT_INPUT-length-1;
+		strncat(text, sendSuffix, availableChars);
+	}
 
 	tcpInterface->Send(text, (unsigned int) strlen(text), systemAddress);
 }
@@ -139,10 +163,10 @@ Packet* TelnetTransport::Receive( void )
 		gotLine=ReassembleLine(remoteClient, p->data[i]);
 		if (gotLine && remoteClient->textInput[0])
 		{
-			Packet *reassembledLine = new Packet;
+			Packet *reassembledLine = (Packet*) rakMalloc(sizeof(Packet));
 			reassembledLine->length=(unsigned int) strlen(remoteClient->textInput);
 			assert(reassembledLine->length < REMOTE_MAX_TEXT_INPUT);
-			reassembledLine->data= new unsigned char [reassembledLine->length+1];
+			reassembledLine->data= (unsigned char*) rakMalloc( reassembledLine->length+1 );
 			memcpy(reassembledLine->data, remoteClient->textInput, reassembledLine->length);
 #ifdef _PRINTF_DEBUG
 			memset(remoteClient->textInput, 0, REMOTE_MAX_TEXT_INPUT);
@@ -160,8 +184,8 @@ Packet* TelnetTransport::Receive( void )
 void TelnetTransport::DeallocatePacket( Packet *packet )
 {
 	if (tcpInterface==0) return;
-	delete [] packet->data;
-	delete packet;
+	rakFree(packet->data);
+	rakFree(packet);
 }
 SystemAddress TelnetTransport::HasNewConnection(void)
 {
@@ -229,7 +253,7 @@ SystemAddress TelnetTransport::HasLostConnection(void)
 			{
 				delete remoteClients[i];
 				remoteClients[i]=remoteClients[remoteClients.Size()-1];
-				remoteClients.Del();
+				remoteClients.RemoveFromEnd();
 			}
 		}
 	}
@@ -238,6 +262,32 @@ SystemAddress TelnetTransport::HasLostConnection(void)
 CommandParserInterface* TelnetTransport::GetCommandParser(void)
 {
 	return 0;
+}
+void TelnetTransport::SetSendSuffix(const char *suffix)
+{
+	if (sendSuffix)
+	{
+		rakFree(sendSuffix);
+		sendSuffix=0;
+	}
+	if (suffix)
+	{
+		sendSuffix = (char*) rakMalloc(strlen(suffix)+1);
+		strcpy(sendSuffix, suffix);
+	}
+}
+void TelnetTransport::SetSendPrefix(const char *prefix)
+{
+	if (sendPrefix)
+	{
+		rakFree(sendPrefix);
+		sendPrefix=0;
+	}
+	if (prefix)
+	{
+		sendPrefix = (char*) rakMalloc(strlen(prefix)+1);
+		strcpy(sendPrefix, prefix);
+	}
 }
 void TelnetTransport::AutoAllocate(void)
 {

@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -22,6 +22,7 @@
 
 static const int MINIMUM_LIST_SIZE=8;
 
+#include "RakMemoryOverride.h"
 #include "Export.h"
 
 /// The namespace DataStructures was only added to avoid compiler errors for commonly named data structures
@@ -30,7 +31,7 @@ namespace DataStructures
 {
 	/// \brief A single producer consumer implementation without critical sections.
 	template <class SingleProducerConsumerType>
-	class RAK_DLL_EXPORT SingleProducerConsumer
+	class RAK_DLL_EXPORT SingleProducerConsumer : public RakNet::RakMemoryOverride
 	{
 	public:
 		/// Constructor
@@ -100,6 +101,7 @@ namespace DataStructures
 	{
 		// Preallocate
 		readPointer = new DataPlusPtr;
+		readPointer->readyToRead=false;
 		writePointer=readPointer;
 		readPointer->next = new DataPlusPtr;
 		int listSize;
@@ -110,6 +112,7 @@ namespace DataStructures
 		{
 			readPointer=readPointer->next;
 			readPointer->next = new DataPlusPtr;
+			readPointer->readyToRead=false;
 		}
 		readPointer->next->next=writePointer; // last to next = start
 		readPointer=writePointer;
@@ -271,7 +274,11 @@ namespace DataStructures
 #include <assert.h>
 #include <stdio.h>
 #include <windows.h>
+#if defined(_CONSOLE_2)
 #include <math.h>
+#else
+#include <cmath>
+#endif
 #include <stdlib.h>
 
 #define READ_COUNT_ITERATIONS 10000000
@@ -341,6 +348,6 @@ Sleep(0);
 }
 char str[256];
 printf("Elapsed time = %i milliseconds. Press Enter to continue\n", timeGetTime() - startTime);
-gets(str);
+fgets(str, sizeof(str), stdin);
 }
 */

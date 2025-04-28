@@ -1,5 +1,5 @@
 /// \file
-/// \brief \b [Internal] Encapsulates Berkely sockets
+/// \brief SocketLayer class implementation
 ///
 /// This file is part of RakNet Copyright 2003 Kevin Jenkins.
 ///
@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -19,8 +19,9 @@
 #ifndef __SOCKET_LAYER_H
 #define __SOCKET_LAYER_H
 
-#ifdef _COMPATIBILITY_1
-#include "Compatibility1Includes.h"
+#include "RakMemoryOverride.h"
+#ifdef _CONSOLE_1
+#include "Console1Includes.h"
 #elif defined(_WIN32)
 // IP_DONTFRAGMENT is different between winsock 1 and winsock 2.  Therefore, Winsock2.h must be linked againt Ws2_32.lib
 // winsock.h must be linked against WSock32.lib.  If these two are mixed up the flag won't work correctly
@@ -43,7 +44,7 @@ typedef int SOCKET;
 class RakPeer;
 
 // A platform independent implementation of Berkeley sockets, with settings used by RakNet
-class SocketLayer
+class SocketLayer : public RakNet::RakMemoryOverride
 {
 
 public:
@@ -74,7 +75,7 @@ public:
 	/// \return A new socket used for accepting clients 
 	SOCKET CreateBoundSocket( unsigned short port, bool blockingSocket, const char *forceHostAddress );
 
-	#if !defined(_COMPATIBILITY_1)
+	#if !defined(_CONSOLE_1)
 	const char* DomainNameToIP( const char *domainName );
 	#endif
 	
@@ -97,8 +98,9 @@ public:
 	/// \return Returns true if you successfully read data, false on error.
 	int RecvFrom( const SOCKET s, RakPeer *rakPeer, int *errorCode, unsigned connectionSocketIndex );
 	
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 	/// Retrieve all local IP address in a string format.
+	/// \param[in] s The socket whose port we are referring to
 	/// \param[in] ipList An array of ip address in dotted notation.
 	void GetMyIP( char ipList[ 10 ][ 16 ] );
 #endif
@@ -111,7 +113,18 @@ public:
 	/// \param[in] port The port number to send to.
 	/// \return 0 on success, nonzero on failure.
 	int SendTo( SOCKET s, const char *data, int length, char ip[ 16 ], unsigned short port );
-	
+
+	/// Call sendto (UDP obviously), however, the time to live for the packet is set to 3
+	/// It won't reach the recipient, except on a LAN
+	/// However, this is good for opening routers / firewalls
+	/// \param[in] s the socket
+	/// \param[in] data The byte buffer to send 
+	/// \param[in] length The length of the \a data in bytes
+	/// \param[in] ip The address of the remote host in dotted notation.
+	/// \param[in] port The port number to send to.
+	/// \return 0 on success, nonzero on failure.
+	int SendToTTL2( SOCKET s, const char *data, int length, char ip[ 16 ], unsigned short port );
+
 	/// Call sendto (UDP obviously)
 	/// \param[in] s the socket
 	/// \param[in] data The byte buffer to send 
@@ -120,11 +133,12 @@ public:
 	/// \param[in] port The port number to send to.
 	/// \return 0 on success, nonzero on failure.
 	int SendTo( SOCKET s, const char *data, int length, unsigned int binaryAddress, unsigned short port );
-		
+
 	/// Returns the local port, useful when passing 0 as the startup port.
 	/// \param[in] s The socket whose port we are referring to
 	/// \return The local port
 	unsigned short GetLocalPort ( SOCKET s );
+
 private:
 	
 	static bool socketLayerStarted;

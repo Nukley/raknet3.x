@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -24,6 +24,7 @@
 #include "DS_Map.h"
 #include "RakNetTypes.h"
 #include "PacketPriority.h"
+#include "RakMemoryOverride.h"
 
 class FileListTransferCBInterface;
 class FileList;
@@ -38,7 +39,7 @@ class FileList;
 /// Call SetupReceive to allow one file set to arrive.  The value returned by FileListTransfer::SetupReceive()
 /// is the setID that is allowed.
 /// It's up to you to transmit this value to the other system, along with information indicating what kind of files you want to get.
-/// The other system should then prepare a FileList and call send, passing the return value of FileListTransfer::SetupReceive()
+/// The other system should then prepare a FileList and call FileListTransfer::Send(), passing the return value of FileListTransfer::SetupReceive()
 /// as the \a setID parameter to FileListTransfer::Send()
 /// \ingroup FILE_LIST_TRANSFER_GROUP
 class RAK_DLL_EXPORT FileListTransfer : public PluginInterface
@@ -46,7 +47,7 @@ class RAK_DLL_EXPORT FileListTransfer : public PluginInterface
 public:
 	FileListTransfer();
 	virtual ~FileListTransfer();
-
+	
 	/// Allows one corresponding Send() call from another system to arrive.
 	/// \param[in] handler The class to call on each file
 	/// \param[in] deleteHandler True to delete the handler when it is no longer needed.  False to not do so.
@@ -64,7 +65,14 @@ public:
 	/// \param[in] compressData Use a poor but fast compression algorithm.  This makes your data larger if it is already compressed or if the amount of data to send is small so don't use it blindly.
 	void Send(FileList *fileList, RakPeerInterface *rakPeer, SystemAddress recipient, unsigned short setID, PacketPriority priority, char orderingChannel, bool compressData);
 
+	/// Stop a download.
+	void CancelReceive(unsigned short setId);
+
+	/// Remove all handlers associated with a particular system address
 	void RemoveReceiver(SystemAddress systemAddress);
+
+	/// Is a handler passed to SetupReceive still running?
+	bool IsHandlerActive(unsigned short setId);
 
 	/// \internal For plugin handling
 	virtual PluginReceiveResult OnReceive(RakPeerInterface *peer, Packet *packet);
@@ -74,6 +82,9 @@ public:
 	virtual void OnCloseConnection(RakPeerInterface *peer, SystemAddress systemAddress);
 	/// \internal For plugin handling
 	virtual void OnAttach(RakPeerInterface *peer);
+	/// \internal For plugin handling
+	virtual void Update(RakPeerInterface *peer);
+
 protected:
 	bool DecodeSetHeader(Packet *packet);
 	bool DecodeFile(Packet *packet, bool fullFile);

@@ -39,13 +39,14 @@ FileListTransfer::~FileListTransfer()
 }
 unsigned short FileListTransfer::SetupReceive(FileListTransferCBInterface *handler, bool deleteHandler, SystemAddress allowedSender)
 {
-	if (rakPeer->GetIndexFromSystemAddress(allowedSender)==-1)
+	if (rakPeer->IsConnected(allowedSender)==false)
 		return (unsigned short)-1;
 	FileListReceiver *receiver;
 
 	if (fileListReceivers.Has(setId))
 	{
 		receiver=fileListReceivers.Get(setId);
+		receiver->downloadHandler->OnDereference();
 		if (receiver->deleteDownloadHandler)
 			delete receiver->downloadHandler;
 		delete receiver;
@@ -75,22 +76,24 @@ void FileListTransfer::Send(FileList *fileList, RakPeerInterface *rakPeer, Syste
 	DataStructures::Queue<FileListNode> compressedFiles;
 	FileListNode n;
 
+	totalCompressedLength=totalLength=0;
 	if (compressData)
 	{
 		memset(frequencyTable,0,256*sizeof(unsigned int));
 
 		for (i=0; i < fileList->fileList.Size(); i++)
 		{
-			for (j=0; j < fileList->fileList[i].dataLength; j++)
+			const FileListNode &fileListNode = fileList->fileList[i];
+			for (j=0; j < fileListNode.dataLength; j++)
 			{
-				++frequencyTable[(unsigned char)(fileList->fileList[i].data[j])];
+				++frequencyTable[(unsigned char)(fileListNode.data[j])];
 			}
 		}
 
 		tree.GenerateFromFrequencyTable(frequencyTable);
 
 		// Compress all the files, so we know the total compressed size to be sent
-		totalCompressedLength=totalLength=0;
+
 		for (i=0; i < fileList->fileList.Size(); i++)
 		{
 			encodedData.Reset();
@@ -100,9 +103,17 @@ void FileListTransfer::Send(FileList *fileList, RakPeerInterface *rakPeer, Syste
 			n.dataLength=encodedData.GetNumberOfBitsUsed();
 			totalCompressedLength+=BITS_TO_BYTES(n.dataLength);
 			totalLength+=fileList->fileList[i].fileLength;
-			n.data = new char[BITS_TO_BYTES(n.dataLength)];
+			n.data = (char*) rakMalloc( BITS_TO_BYTES(n.dataLength) );
 			memcpy(n.data, encodedData.GetData(), BITS_TO_BYTES(n.dataLength));
 			compressedFiles.Push(n);
+		}
+	}
+	else
+	{
+		for (i=0; i < fileList->fileList.Size(); i++)
+		{
+			const FileListNode &fileListNode = fileList->fileList[i];
+			totalLength+=fileListNode.fileLength;
 		}
 	}
 
@@ -119,7 +130,7 @@ void FileListTransfer::Send(FileList *fileList, RakPeerInterface *rakPeer, Syste
 			outBitstream.Write(true);
 			for (i=0; i < 256; i++)
 				outBitstream.WriteCompressed(frequencyTable[i]);
-			outBitstream.WriteCompressed(fileList->fileList.Size());
+			outBitstream.WriteCompressed(fileList->fileList.Size()); // SetCount
 			outBitstream.WriteCompressed(totalLength);
 			outBitstream.WriteCompressed(totalCompressedLength);
 		}
@@ -132,27 +143,42 @@ void FileListTransfer::Send(FileList *fileList, RakPeerInterface *rakPeer, Syste
 		
 		rakPeer->Send(&outBitstream, priority, RELIABLE_ORDERED, orderingChannel, recipient, false);
 
-		// Send each possibly compressed file
-		for (i=0; i < compressedFiles.Size(); i++)
+		// Next part arrives at FileListTransfer::DecodeFile
+		if (compressData)
 		{
-			outBitstream.Reset();
-			outBitstream.Write((MessageID)ID_FILE_LIST_TRANSFER_FILE);
-			outBitstream.Write(fileList->fileList[i].context);
-			outBitstream.Write(setID);
-			outBitstream.WriteCompressed(i);
-			outBitstream.WriteCompressed(fileList->fileList[i].dataLength); // Original length
-			if (compressData)
-				outBitstream.WriteCompressed(compressedFiles[i].dataLength); // Compressed bitlength			}
-			stringCompressor->EncodeString(fileList->fileList[i].filename, 512, &outBitstream);
-			if (compressData)
+			// Send each possibly compressed file
+			for (i=0; i < compressedFiles.Size(); i++)
 			{
+				outBitstream.Reset();
+				outBitstream.Write((MessageID)ID_FILE_LIST_TRANSFER_FILE);
+				outBitstream.Write(fileList->fileList[i].context);
+				outBitstream.Write(setID);
+				outBitstream.WriteCompressed(i);
+				outBitstream.WriteCompressed(fileList->fileList[i].dataLength); // Original length
+				outBitstream.WriteCompressed(compressedFiles[i].dataLength); // Compressed bitlength
+				stringCompressor->EncodeString(fileList->fileList[i].filename, 512, &outBitstream);
 				outBitstream.WriteBits((const unsigned char*)compressedFiles[i].data, compressedFiles[i].dataLength);
-				delete [] compressedFiles[i].data;
+				rakFree(compressedFiles[i].data);
+
+				rakPeer->Send(&outBitstream, priority, RELIABLE_ORDERED, orderingChannel, recipient, false);
 			}
-			else
-				outBitstream.WriteBits((const unsigned char*)fileList->fileList[i].data, fileList->fileList[i].dataLength);
-			
-			rakPeer->Send(&outBitstream, priority, RELIABLE_ORDERED, orderingChannel, recipient, false);
+		}
+		else
+		{
+			for (i=0; i < fileList->fileList.Size(); i++)
+			{
+				outBitstream.Reset();
+				outBitstream.Write((MessageID)ID_FILE_LIST_TRANSFER_FILE);
+				outBitstream.Write(fileList->fileList[i].context);
+				outBitstream.Write(setID);
+				outBitstream.WriteCompressed(i);
+				outBitstream.WriteCompressed(fileList->fileList[i].dataLength); // Original length
+				stringCompressor->EncodeString(fileList->fileList[i].filename, 512, &outBitstream);
+				outBitstream.AlignWriteToByteBoundary();
+				outBitstream.Write((const char*) fileList->fileList[i].data, fileList->fileList[i].dataLength);
+				rakPeer->Send(&outBitstream, priority, RELIABLE_ORDERED, orderingChannel, recipient, false);
+			}
+
 		}
 	}
 	else
@@ -209,13 +235,20 @@ bool FileListTransfer::DecodeSetHeader(Packet *packet)
 		else
 		{
 			inBitStream.ReadCompressed(fileListReceiver->setCount);
-			inBitStream.ReadCompressed(fileListReceiver->setTotalFinalLength);
-			fileListReceiver->setTotalCompressedTransmissionLength=fileListReceiver->setTotalFinalLength;
+			if (inBitStream.ReadCompressed(fileListReceiver->setTotalFinalLength))
+			{
+				fileListReceiver->setTotalCompressedTransmissionLength=fileListReceiver->setTotalFinalLength;
+				fileListReceiver->gotSetHeader=true;
+				return true;
+			}
 		}
 	}
 	else
 	{
-		fileListReceiver->downloadHandler->OnFile(0, 0, 0, 0, 0, setID, 0, 0, 0, 0);
+		FileListTransferCBInterface::OnFileStruct s;
+		memset(&s,0,sizeof(FileListTransferCBInterface::OnFileStruct));
+		s.setID=setID;
+		fileListReceiver->downloadHandler->OnFile(&s);
 		return true;
 	}
 
@@ -224,19 +257,14 @@ bool FileListTransfer::DecodeSetHeader(Packet *packet)
 
 bool FileListTransfer::DecodeFile(Packet *packet, bool fullFile)
 {
-	unsigned char *decompressedFileData;
-	char fileName[512];
-	unsigned char context;
-	unsigned fileIndex, fileLength, compressedLength;
-	unsigned bitLength;
-	unsigned len;
-	unsigned short setID;
+	FileListTransferCBInterface::OnFileStruct onFileStruct;
+	unsigned bitLength=0;
 	RakNet::BitStream inBitStream(packet->data, packet->length, false);
 	inBitStream.IgnoreBits(8);
 
-	unsigned int partCount;
-	unsigned int partTotal;
-	unsigned int partLength;
+	unsigned int partCount=0;
+	unsigned int partTotal=0;
+	unsigned int partLength=0;
 	if (fullFile==false)
 	{
 		inBitStream.Read(partCount);
@@ -244,17 +272,17 @@ bool FileListTransfer::DecodeFile(Packet *packet, bool fullFile)
 		inBitStream.Read(partLength);
 		inBitStream.IgnoreBits(8);
 	}
-	inBitStream.Read(context);
-	inBitStream.Read(setID);
+	inBitStream.Read(onFileStruct.context);
+	inBitStream.Read(onFileStruct.setID);
 	FileListReceiver *fileListReceiver;
-	if (fileListReceivers.Has(setID)==false)
+	if (fileListReceivers.Has(onFileStruct.setID)==false)
 	{
 #ifdef _DEBUG
 		assert(0);
 #endif
 		return false;
 	}
-	fileListReceiver=fileListReceivers.Get(setID);
+	fileListReceiver=fileListReceivers.Get(onFileStruct.setID);
 	if (fileListReceiver->allowedSender!=packet->systemAddress)
 	{
 #ifdef _DEBUG
@@ -266,16 +294,21 @@ bool FileListTransfer::DecodeFile(Packet *packet, bool fullFile)
 #ifdef _DEBUG
 	assert(fileListReceiver->gotSetHeader==true);
 #endif
-	
-	inBitStream.ReadCompressed(fileIndex);
-	inBitStream.ReadCompressed(fileLength);
+
+	inBitStream.ReadCompressed(onFileStruct.fileIndex);
+	inBitStream.ReadCompressed(onFileStruct.finalDataLength);
 	if (fileListReceiver->isCompressed)
 	{
 		inBitStream.ReadCompressed(bitLength);
-		compressedLength=BITS_TO_BYTES(bitLength);
+		onFileStruct.compressedTransmissionLength=BITS_TO_BYTES(bitLength);
+	}
+	else
+	{
+		// Read header uncompressed so the data is byte aligned, for speed
+		onFileStruct.compressedTransmissionLength=onFileStruct.finalDataLength;
 	}
 
-	if (stringCompressor->DecodeString(fileName, 512, &inBitStream)==false)
+	if (stringCompressor->DecodeString(onFileStruct.fileName, 512, &inBitStream)==false)
 	{
 #ifdef _DEBUG
 		assert(0);
@@ -285,43 +318,54 @@ bool FileListTransfer::DecodeFile(Packet *packet, bool fullFile)
 
 	if (fullFile)
 	{
-		decompressedFileData = new unsigned char [fileLength];
+		onFileStruct.fileData = (char*) rakMalloc( onFileStruct.finalDataLength );
 
 		if (fileListReceiver->isCompressed)
 		{
-			len=fileListReceiver->tree.DecodeArray(&inBitStream, bitLength, fileLength, decompressedFileData);
-			if (len!=fileLength)
+			unsigned len=fileListReceiver->tree.DecodeArray(&inBitStream, bitLength, onFileStruct.finalDataLength, (unsigned char*) onFileStruct.fileData);
+			if (len!=onFileStruct.finalDataLength)
 			{
 #ifdef _DEBUG
 				assert(0);
 #endif
-				delete [] decompressedFileData;
+				rakFree(onFileStruct.fileData);
 				return false;
 			}
 		}
 		else
-			inBitStream.Read((char*)decompressedFileData, fileLength);
+		{
+			inBitStream.AlignReadToByteBoundary();
+			inBitStream.Read((char*)onFileStruct.fileData, onFileStruct.finalDataLength);
+		}
 	}
 	
+
+	onFileStruct.setCount=fileListReceiver->setCount;
+	onFileStruct.setTotalCompressedTransmissionLength=fileListReceiver->setTotalCompressedTransmissionLength;
+	onFileStruct.setTotalFinalLength=fileListReceiver->setTotalFinalLength;
 
 	// User callback for this file.
 	if (fullFile)
 	{
-		fileListReceiver->downloadHandler->OnFile(fileIndex, fileName, (char*)decompressedFileData, compressedLength, fileLength, setID, fileListReceiver->setCount, fileListReceiver->setTotalCompressedTransmissionLength, fileListReceiver->setTotalFinalLength, context);
-		delete [] decompressedFileData;
+		if (fileListReceiver->downloadHandler->OnFile(&onFileStruct))
+			rakFree(onFileStruct.fileData);
 
 		// If this set is done, free the memory for it.
-		if (fileListReceiver->setCount==fileIndex+1)
+		if (fileListReceiver->setCount==onFileStruct.fileIndex+1)
 		{
-			if (fileListReceiver->deleteDownloadHandler)
-				delete fileListReceiver->downloadHandler;
-			delete fileListReceiver;
-			fileListReceivers.Delete(setID);
+			if (fileListReceiver->downloadHandler->OnDownloadComplete()==false)
+			{
+				fileListReceiver->downloadHandler->OnDereference();
+				if (fileListReceiver->deleteDownloadHandler)
+					delete fileListReceiver->downloadHandler;
+				fileListReceivers.Delete(onFileStruct.setID);
+				delete fileListReceiver;
+			}
 		}
 
 	}
 	else
-		fileListReceiver->downloadHandler->OnFileProgress(fileIndex, fileName, compressedLength, fileLength, setID, fileListReceiver->setCount, fileListReceiver->setTotalCompressedTransmissionLength, fileListReceiver->setTotalFinalLength, context, partCount, partTotal, partLength);
+		fileListReceiver->downloadHandler->OnFileProgress(&onFileStruct, partCount, partTotal, partLength);
 
 	return true;
 }
@@ -366,8 +410,11 @@ void FileListTransfer::Clear(void)
 	unsigned i;
 	for (i=0; i < fileListReceivers.Size(); i++)
 	{
+		fileListReceivers[i]->downloadHandler->OnDereference();
 		if (fileListReceivers[i]->deleteDownloadHandler)
+		{
 			delete fileListReceivers[i]->downloadHandler;
+		}
 		delete fileListReceivers[i];
 	}
 	fileListReceivers.Clear();
@@ -379,7 +426,22 @@ void FileListTransfer::OnCloseConnection(RakPeerInterface *peer, SystemAddress s
 {
 	RemoveReceiver(systemAddress);
 }
-
+void FileListTransfer::CancelReceive(unsigned short setId)
+{
+	if (fileListReceivers.Has(setId)==false)
+	{
+#ifdef _DEBUG
+		assert(0);
+#endif
+		return;
+	}
+	FileListReceiver *fileListReceiver=fileListReceivers.Get(setId);
+	fileListReceiver->downloadHandler->OnDereference();
+	if (fileListReceiver->deleteDownloadHandler)
+		delete fileListReceiver->downloadHandler;
+	delete fileListReceiver;
+	fileListReceivers.Delete(setId);
+}
 void FileListTransfer::RemoveReceiver(SystemAddress systemAddress)
 {
 	unsigned i;
@@ -388,6 +450,35 @@ void FileListTransfer::RemoveReceiver(SystemAddress systemAddress)
 	{
 		if (fileListReceivers[i]->allowedSender==systemAddress)
 		{
+			fileListReceivers[i]->downloadHandler->OnDereference();
+			if (fileListReceivers[i]->deleteDownloadHandler)
+			{
+				delete fileListReceivers[i]->downloadHandler;
+			}
+			delete fileListReceivers[i];
+			fileListReceivers.RemoveAtIndex(i);
+		}
+		else
+			i++;
+	}
+}
+bool FileListTransfer::IsHandlerActive(unsigned short setId)
+{
+	return fileListReceivers.Has(setId);
+}
+void FileListTransfer::OnAttach(RakPeerInterface *peer)
+{
+	rakPeer=peer;
+}
+void FileListTransfer::Update(RakPeerInterface *peer)
+{
+	unsigned i;
+	i=0;
+	while (i < fileListReceivers.Size())
+	{
+		if (fileListReceivers[i]->downloadHandler->Update()==false)
+		{
+			fileListReceivers[i]->downloadHandler->OnDereference();
 			if (fileListReceivers[i]->deleteDownloadHandler)
 				delete fileListReceivers[i]->downloadHandler;
 			delete fileListReceivers[i];
@@ -396,11 +487,6 @@ void FileListTransfer::RemoveReceiver(SystemAddress systemAddress)
 		else
 			i++;
 	}
-}
-void FileListTransfer::OnAttach(RakPeerInterface *peer)
-{
-	rakPeer=peer;
-
 }
 
 #ifdef _MSC_VER

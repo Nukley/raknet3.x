@@ -8,7 +8,10 @@ PacketFileLogger::PacketFileLogger()
 PacketFileLogger::~PacketFileLogger()
 {
 	if (packetLogFile)
+	{
+		fflush(packetLogFile);
 		fclose(packetLogFile);
+	}
 }
 void PacketFileLogger::StartLog(const char *filenamePrefix)
 {
@@ -20,10 +23,17 @@ void PacketFileLogger::StartLog(const char *filenamePrefix)
 		sprintf(filename, "PacketLog_%i.csv", RakNet::GetTime());
 	packetLogFile = fopen(filename, "wt");
 	LogHeader();
+	if (packetLogFile)
+	{
+		fflush(packetLogFile);
+	}
 }
 
 void PacketFileLogger::WriteLog(const char *str)
 {
 	if (packetLogFile)
+	{
 		fprintf(packetLogFile, "%s\n", str);
+		fflush(packetLogFile);
+	}
 }

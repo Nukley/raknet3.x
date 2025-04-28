@@ -45,7 +45,7 @@ DataStructures::Table* LightweightDatabaseServer::AddTable(char *tableName,
 														   bool allowRemoteUpdate,
 														   bool allowRemoteRemove,
 														   const char *queryPassword,
-														   const char *updatePassword,		
+														   const char *updatePassword,
 														   const char *removePassword,
 														   bool oneRowPerSystemAddress,
 														   bool onlyUpdateOwnRows,
@@ -59,29 +59,29 @@ DataStructures::Table* LightweightDatabaseServer::AddTable(char *tableName,
 		return 0;
 	DatabaseTable *databaseTable = new DatabaseTable;
 
-	strncpy(databaseTable->tableName, tableName, _SIMPLE_DATABASE_TABLE_NAME_LENGTH);
-	databaseTable->tableName[_SIMPLE_DATABASE_TABLE_NAME_LENGTH]=0;
+	strncpy(databaseTable->tableName, tableName, _SIMPLE_DATABASE_TABLE_NAME_LENGTH-1);
+	databaseTable->tableName[_SIMPLE_DATABASE_TABLE_NAME_LENGTH-1]=0;
 
 	if (allowRemoteUpdate)
 	{
-		strncpy(databaseTable->updatePassword, updatePassword, _SIMPLE_DATABASE_PASSWORD_LENGTH);
-		databaseTable->updatePassword[_SIMPLE_DATABASE_PASSWORD_LENGTH]=0;
+		strncpy(databaseTable->updatePassword, updatePassword, _SIMPLE_DATABASE_PASSWORD_LENGTH-1);
+		databaseTable->updatePassword[_SIMPLE_DATABASE_PASSWORD_LENGTH-1]=0;
 	}
 	else
 		databaseTable->updatePassword[0]=0;
 
 	if (allowRemoteQuery)
 	{
-		strncpy(databaseTable->queryPassword, queryPassword, _SIMPLE_DATABASE_PASSWORD_LENGTH);
-		databaseTable->queryPassword[_SIMPLE_DATABASE_PASSWORD_LENGTH]=0;
+		strncpy(databaseTable->queryPassword, queryPassword, _SIMPLE_DATABASE_PASSWORD_LENGTH-1);
+		databaseTable->queryPassword[_SIMPLE_DATABASE_PASSWORD_LENGTH-1]=0;
 	}
 	else
 		databaseTable->queryPassword[0]=0;	
 
 	if (allowRemoteRemove)
 	{
-		strncpy(databaseTable->removePassword, removePassword, _SIMPLE_DATABASE_PASSWORD_LENGTH);
-		databaseTable->removePassword[_SIMPLE_DATABASE_PASSWORD_LENGTH]=0;
+		strncpy(databaseTable->removePassword, removePassword, _SIMPLE_DATABASE_PASSWORD_LENGTH-1);
+		databaseTable->removePassword[_SIMPLE_DATABASE_PASSWORD_LENGTH-1]=0;
 	}
 	else
 		databaseTable->removePassword[0]=0;
@@ -222,7 +222,7 @@ void LightweightDatabaseServer::Update(RakPeerInterface *peer)
 						if (row->cells[databaseTable->nextPingSendColumnIndex]->i < (int) time)
 						{
 							row->cells[databaseTable->SystemAddressColumnIndex]->Get((char*)&systemAddress, 0);
-							if (peer->GetIndexFromSystemAddress(systemAddress)==-1)
+							if (peer->IsConnected(systemAddress)==false)
 							{
 								peer->Ping(systemAddress.ToString(false), systemAddress.port, false);
 							}
@@ -291,9 +291,16 @@ void LightweightDatabaseServer::OnQueryRequest(RakPeerInterface *peer, Packet *p
 	unsigned i;
 	if (inBitstream.Read(numColumnSubset)==false)
 		return;
-	unsigned columnSubset[256];
-	for (i=0; i < numColumnSubset; i++)
-		inBitstream.Read(columnSubset[i]);
+	unsigned char columnName[256];
+	unsigned columnIndicesSubset[256];
+	unsigned columnIndicesCount;
+	for (i=0,columnIndicesCount=0; i < numColumnSubset; i++)
+	{
+		stringCompressor->DecodeString((char*)columnName, 256, &inBitstream);
+		unsigned colIndex = databaseTable->table.ColumnIndex((char*)columnName);
+		if (colIndex!=(unsigned)-1)
+			columnIndicesSubset[columnIndicesCount++]=colIndex;
+	}
 	unsigned char numNetworkedFilters;
 	if (inBitstream.Read(numNetworkedFilters)==false)
 		return;
@@ -327,7 +334,7 @@ void LightweightDatabaseServer::OnQueryRequest(RakPeerInterface *peer, Packet *p
 	}
     
 	DataStructures::Table queryResult;
-	databaseTable->table.QueryTable(columnSubset, numColumnSubset, tableFilters, numTableFilters, rowIds, numRowIDs, &queryResult);
+	databaseTable->table.QueryTable(columnIndicesSubset, columnIndicesCount, tableFilters, numTableFilters, rowIds, numRowIDs, &queryResult);
 	outBitstream.Write((MessageID)ID_DATABASE_QUERY_REPLY);
 	TableSerializer::SerializeTable(&queryResult, &outBitstream);
 	peer->Send(&outBitstream, HIGH_PRIORITY, RELIABLE_ORDERED, 0, packet->systemAddress, false);			
@@ -338,9 +345,15 @@ void LightweightDatabaseServer::OnUpdateRow(RakPeerInterface *peer, Packet *pack
 	RakNet::BitStream inBitstream(packet->data, packet->length, false);
 	LightweightDatabaseServer::DatabaseTable *databaseTable = DeserializeClientHeader(&inBitstream, peer, packet, 1);
 	if (databaseTable==0)
+	{
+		printf("ERROR: LightweightDatabaseServer::OnUpdateRow databaseTable==0\n");
 		return;
+	}
 	if (databaseTable->allowRemoteUpdate==false)
+	{
+		printf("Warning: LightweightDatabaseServer::OnUpdateRow databaseTable->allowRemoteUpdate==false\n");
 		return;
+	}
 	unsigned char updateMode;
 	bool hasRowId;
 	unsigned rowId;
@@ -360,36 +373,68 @@ void LightweightDatabaseServer::OnUpdateRow(RakPeerInterface *peer, Packet *pack
 	for (i=0; i < numCellUpdates; i++)
 	{
 		if (cellUpdates[i].Deserialize(&inBitstream)==false)
+		{
+			printf("ERROR: LightweightDatabaseServer::OnUpdateRow cellUpdates deserialize failed i=%i numCellUpdates=%i\n",i,numCellUpdates);
 			return;
+		}
 	}
 
 	if ((RowUpdateMode)updateMode==RUM_UPDATE_EXISTING_ROW)
 	{
 		if (hasRowId==false)
-			return;
+		{
+			unsigned rowKey;
+			row = GetRowFromIP(databaseTable, packet->systemAddress, &rowKey);
+			if (row==0)
+				printf("ERROR: LightweightDatabaseServer::OnUpdateRow updateMode==RUM_UPDATE_EXISTING_ROW hasRowId==false");
+		}
+		else
+		{
+	
+			row = databaseTable->table.GetRowByID(rowId);
+			if (row==0 || (databaseTable->onlyUpdateOwnRows && RowHasIP(row, packet->systemAddress, databaseTable->SystemAddressColumnIndex)==false))
+			{
+				if (row==0)
+					printf("ERROR: LightweightDatabaseServer::OnUpdateRow row = databaseTable->table.GetRowByID(rowId); row==0\n");
+				else
+					printf("ERROR: LightweightDatabaseServer::OnUpdateRow row = databaseTable->table.GetRowByID(rowId); databaseTable->onlyUpdateOwnRows && RowHasIP\n");
 
-		row = databaseTable->table.GetRowByID(rowId);
-		if (row==0 || databaseTable->onlyUpdateOwnRows && RowHasIP(row, packet->systemAddress, databaseTable->SystemAddressColumnIndex)==false)
-			return; // You can't update some other system's row
+				return; // You can't update some other system's row
+			}
+		}
 	}
 	else if ((RowUpdateMode)updateMode==RUM_UPDATE_OR_ADD_ROW)
 	{
 		if (hasRowId)
 			row = databaseTable->table.GetRowByID(rowId);
 		else
-			row=0;
+		{
+			unsigned rowKey;
+			row = GetRowFromIP(databaseTable, packet->systemAddress, &rowKey);
+		}
 
 		if (row==0)
 		{
 			row=AddRow(databaseTable, packet->systemAddress, hasRowId, rowId);
 			if (row==0)
+			{
+				printf("ERROR: LightweightDatabaseServer::OnUpdateRow updateMode==RUM_UPDATE_OR_ADD_ROW; row=AddRow; row==0\n");
 				return;
+			}
 		}
 		else
 		{
 			// Existing row
 			if (databaseTable->onlyUpdateOwnRows && RowHasIP(row, packet->systemAddress, databaseTable->SystemAddressColumnIndex)==false)
+			{
+				SystemAddress sysAddr;
+				memcpy(&sysAddr, row->cells[databaseTable->SystemAddressColumnIndex]->c, sizeof(SystemAddress));
+
+				printf("ERROR: LightweightDatabaseServer::OnUpdateRow updateMode==RUM_UPDATE_OR_ADD_ROW; databaseTable->onlyUpdateOwnRows && RowHasIP. packet->systemAddress=%s sysAddr=%s\n",
+					packet->systemAddress.ToString(true), sysAddr.ToString(true));
+
 				return; // You can't update some other system's row
+			}
 		}	
 	}
 	else
@@ -398,7 +443,10 @@ void LightweightDatabaseServer::OnUpdateRow(RakPeerInterface *peer, Packet *pack
 
 		row=AddRow(databaseTable, packet->systemAddress, hasRowId, rowId);
 		if (row==0)
+		{
+			printf("ERROR: LightweightDatabaseServer::OnUpdateRow updateMode==RUM_ADD_NEW_ROW; row==0\n");
 			return;
+		}
 	}
 
 	unsigned columnIndex;
@@ -551,10 +599,15 @@ DataStructures::Table::Row * LightweightDatabaseServer::GetRowFromIP(DatabaseTab
 }
 bool LightweightDatabaseServer::RowHasIP(DataStructures::Table::Row *row, SystemAddress systemAddress, unsigned SystemAddressColumnIndex)
 {
-	RakAssert(row->cells[SystemAddressColumnIndex]->isEmpty==false);
-	if (memcmp(row->cells[SystemAddressColumnIndex]->c, &systemAddress, sizeof(SystemAddress))==0)
-		return true;
-	return false;
+	SystemAddress sysAddr;
+	memcpy(&sysAddr, row->cells[SystemAddressColumnIndex]->c, sizeof(SystemAddress));
+	return sysAddr==systemAddress;
+
+	// Doesn't work in release for some reason
+	//RakAssert(row->cells[SystemAddressColumnIndex]->isEmpty==false);
+	//if (memcmp(row->cells[SystemAddressColumnIndex]->c, &systemAddress, sizeof(SystemAddress))==0)
+	//	return true;
+	// return false;
 }
 DataStructures::Table::Row * LightweightDatabaseServer::AddRow(LightweightDatabaseServer::DatabaseTable *databaseTable, SystemAddress systemAddress, bool hasRowId, unsigned rowId)
 {
@@ -615,12 +668,11 @@ void LightweightDatabaseServer::RemoveRowsFromIP(SystemAddress systemAddress)
 			}
 
 			for (j=0; j < removeList.Size(); j++)
-				databaseTable->table.RemoveRow(removeList[i]);
+				databaseTable->table.RemoveRow(removeList[j]);
 			removeList.Clear(true);
 		}
 	}	
 }
-
 #ifdef _MSC_VER
 #pragma warning( pop )
 #endif

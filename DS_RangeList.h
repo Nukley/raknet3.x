@@ -3,12 +3,13 @@
 
 #include "DS_OrderedList.h"
 #include "BitStream.h"
+#include "RakMemoryOverride.h"
 #include <assert.h>
 
 namespace DataStructures
 {
     template <class range_type>
-    struct RangeNode
+	struct RangeNode : public RakNet::RakMemoryOverride
     {
         RangeNode() {}
         ~RangeNode() {}
@@ -29,15 +30,15 @@ namespace DataStructures
     }
 
 	template <class range_type>
-	class RAK_DLL_EXPORT RangeList
+	class RAK_DLL_EXPORT RangeList : public RakNet::RakMemoryOverride
 	{
 	public:
 		RangeList();
 		~RangeList();
 		void Insert(range_type index);
 		void Clear(void);
-		unsigned Size(void);
-		unsigned RangeSum(void);
+		unsigned Size(void) const;
+		unsigned RangeSum(void) const;
 		unsigned Serialize(RakNet::BitStream *in, int maxBits, bool clearSerialized);
 		bool Deserialize(RakNet::BitStream *out);
 
@@ -83,7 +84,7 @@ namespace DataStructures
 			{
 				ranges[i]=ranges[i+countWritten];
 			}
-			ranges.Del(countWritten);
+			ranges.RemoveFromEnd(countWritten);
 		}
 
 		return bitsWritten;
@@ -135,7 +136,7 @@ namespace DataStructures
 	{
 		if (ranges.Size()==0)
 		{
-			ranges.Insert(index, RangeNode<range_type>(index, index));
+			ranges.Insert(index, RangeNode<range_type>(index, index), true);
 			return;
 		}
 
@@ -148,7 +149,7 @@ namespace DataStructures
 			else if (index > ranges[insertionIndex-1].maxIndex+1)
 			{
 				// Insert at end
-				ranges.Insert(index, RangeNode<range_type>(index, index));
+				ranges.Insert(index, RangeNode<range_type>(index, index), true);
 			}
 
 			return;
@@ -199,13 +200,13 @@ namespace DataStructures
 	}
 
 	template <class range_type>
-	unsigned RangeList<range_type>::Size(void)
+	unsigned RangeList<range_type>::Size(void) const
 	{
 		return ranges.Size();
 	}
 
 	template <class range_type>
-	unsigned RangeList<range_type>::RangeSum(void)
+	unsigned RangeList<range_type>::RangeSum(void) const
 	{
 		unsigned sum=0,i;
 		for (i=0; i < ranges.Size(); i++)

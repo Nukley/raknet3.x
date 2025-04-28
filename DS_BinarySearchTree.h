@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -19,6 +19,7 @@
 #define __BINARY_SEARCH_TREE_H
 
 #include "DS_QueueLinkedList.h"
+#include "RakMemoryOverride.h"
 #include "Export.h"
 
 
@@ -93,7 +94,7 @@ namespace DataStructures
 	 *
 	 */
 	template <class BinarySearchTreeType>
-	class RAK_DLL_EXPORT BinarySearchTree
+	class RAK_DLL_EXPORT BinarySearchTree : public RakNet::RakMemoryOverride
 	{
 	
 	public:
@@ -128,9 +129,7 @@ namespace DataStructures
 		enum Direction_Types
 		{
 			NOT_FOUND, LEFT, RIGHT, ROOT
-		}
-		
-		direction;
+		} direction;
 		unsigned int HeightRecursive( node* current );
 		unsigned int BinarySearchTree_size;
 		node*& Find( const BinarySearchTreeType& element, node** parent );

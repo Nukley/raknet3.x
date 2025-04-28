@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,12 +18,13 @@
 #ifndef __HUFFMAN_ENCODING_TREE_FACTORY
 #define __HUFFMAN_ENCODING_TREE_FACTORY
 
+#include "RakMemoryOverride.h"
 class HuffmanEncodingTree;
 
 /// \brief Creates instances of the class HuffmanEncodingTree
 ///
 /// This class takes a frequency table and given that frequence table, will generate an instance of HuffmanEncodingTree
-class HuffmanEncodingTreeFactory
+class HuffmanEncodingTreeFactory : public RakNet::RakMemoryOverride
 {
 public:
 	/// Default constructor

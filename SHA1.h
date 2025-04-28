@@ -18,6 +18,7 @@
 #ifndef ___SHA1_H___
 #define ___SHA1_H___
 
+#include "RakMemoryOverride.h"
 #include <stdio.h> // Needed for file access
 #include <memory.h> // Needed for memset and memcpy
 #include <string.h> // Needed for strcat and strcpy
@@ -28,7 +29,7 @@
 
 #define SHA1_LENGTH 20
 
-class RAK_DLL_EXPORT CSHA1
+class RAK_DLL_EXPORT CSHA1 : public RakNet::RakMemoryOverride
 {
 
 public:

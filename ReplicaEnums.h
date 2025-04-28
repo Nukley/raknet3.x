@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -44,6 +44,9 @@ enum ReplicaReturnResult
 	/// Useful for multi-part sends with different reliability levels.
 	/// Only currently used by Replica::Serialize
 	REPLICA_PROCESS_AGAIN,
+	/// Only returned from the Replica::SendConstruction interface, means act as if the other system had this object but don't actually
+	/// Send a construction packet.  This way you will still send scope and serialize packets to that system
+	REPLICA_PROCESS_IMPLICIT
 };
 
 #endif

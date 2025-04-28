@@ -18,7 +18,7 @@ LightweightDatabaseClient::~LightweightDatabaseClient()
 {
 
 }
-void LightweightDatabaseClient::QueryTable(const char *tableName, const char *queryPassword, const char **columnSubset, unsigned char numColumnSubset, DatabaseFilter *filter, unsigned char numFilters, unsigned *rowIds, unsigned char numRowIDs, SystemAddress systemAddress, bool broadcast)
+void LightweightDatabaseClient::QueryTable(const char *tableName, const char *queryPassword, const char **columnNamesSubset, unsigned char numColumnSubset, DatabaseFilter *filter, unsigned char numFilters, unsigned *rowIds, unsigned char numRowIDs, SystemAddress systemAddress, bool broadcast)
 {
 	if (tableName==0 || tableName[0]==0)
 		return;
@@ -41,7 +41,9 @@ void LightweightDatabaseClient::QueryTable(const char *tableName, const char *qu
 	out.Write(numColumnSubset);
 	unsigned i;
 	for (i=0; i < numColumnSubset; i++)
-		out.Write(columnSubset[i]);
+	{
+		stringCompressor->EncodeString(columnNamesSubset[i],256,&out);
+	}
 
 	out.Write(numFilters);
 	for (i=0; i < numFilters; i++)

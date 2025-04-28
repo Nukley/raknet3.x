@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,6 +18,7 @@
 #ifndef __RAKNET_HEAP_H
 #define __RAKNET_HEAP_H
 
+#include "RakMemoryOverride.h"
 #include "DS_List.h"
 #include "Export.h"
 #include <assert.h>
@@ -31,7 +32,7 @@
 namespace DataStructures
 {
 	template <class weight_type, class data_type, bool isMaxHeap>
-	class RAK_DLL_EXPORT Heap
+	class RAK_DLL_EXPORT Heap : public RakNet::RakMemoryOverride
 	{
 	public:
 		struct HeapNode
@@ -121,7 +122,7 @@ namespace DataStructures
 		weight_type currentWeight;
 		currentIndex=startingIndex;
 		currentWeight=heap[startingIndex].weight;
-		heap.Del();
+		heap.RemoveFromEnd();
 
 #ifdef _MSC_VER
 #pragma warning( disable : 4127 ) // warning C4127: conditional expression is constant

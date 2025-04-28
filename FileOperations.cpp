@@ -1,3 +1,4 @@
+#include "RakMemoryOverride.h"
 #include "_FindFirst.h" // For linux
 #include "FileOperations.h"
 #include <stdio.h>
@@ -35,11 +36,11 @@ bool WriteFileWithDirectories( const char *path, char *data, unsigned dataLength
 
 #ifndef _WIN32
 
-	systemCommand = new char [ strlen( path ) + 1 + 6 ];
+	systemCommand = (char*) rakMalloc( strlen( path ) + 1 + 6 );
 
 #endif
 
-	pathCopy = new char [ strlen( path ) + 1 ];
+	pathCopy = (char*) rakMalloc( strlen( path ) + 1 );
 
 	strcpy( pathCopy, path );
 
@@ -51,6 +52,7 @@ bool WriteFileWithDirectories( const char *path, char *data, unsigned dataLength
 		{
 			pathCopy[ index ] = 0;
 #ifdef _WIN32
+#pragma warning( disable : 4966 ) // mkdir declared depreciated by Microsoft in order to make it harder to be cross platform.  I don't agree it's depreciated.
 			mkdir( pathCopy );
 #else
 
@@ -69,9 +71,9 @@ bool WriteFileWithDirectories( const char *path, char *data, unsigned dataLength
 
 		if ( fp == 0 )
 		{
-			delete [] pathCopy;
+			rakFree(pathCopy);
 #ifndef _WIN32
-			delete [] systemCommand;
+			rakFree(systemCommand);
 #endif
 			return false;
 		}
@@ -83,15 +85,16 @@ bool WriteFileWithDirectories( const char *path, char *data, unsigned dataLength
 	else
 	{
 #ifdef _WIN32
+#pragma warning( disable : 4966 ) // mkdir declared depreciated by Microsoft in order to make it harder to be cross platform.  I don't agree it's depreciated.
 		mkdir( pathCopy );
 #else
 		mkdir( pathCopy, 0744 );
 #endif
 	}
 
-	delete [] pathCopy;
+	rakFree(pathCopy);
 #ifndef _WIN32
-	delete [] systemCommand;
+	rakFree(systemCommand);
 #endif
 
 

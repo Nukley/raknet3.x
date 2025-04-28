@@ -58,7 +58,7 @@ char *RakNetTransportCommandParser::GetName(void) const
 void RakNetTransportCommandParser::SendHelp(TransportInterface *transport, SystemAddress systemAddress)
 {
 	transport->Send(systemAddress, "Provides a secure connection between your console\r\n");
-	transport->Send(systemAddress, "and the console server.  Used to modify the console password.\r\n");
+	transport->Send(systemAddress, "and the console server. Used to modify the console password.\r\n");
 }
 RakNetTransport::RakNetTransport()
 {

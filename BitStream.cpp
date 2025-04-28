@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -23,30 +23,24 @@
 #include <memory.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
+#include <cmath>
 #include <float.h>
-#ifdef _COMPATIBILITY_1
-#include "Compatibility1Includes.h"
+#ifdef _CONSOLE_1
+#include "Console1Includes.h"
 #elif defined(_WIN32)
 #include <winsock2.h> // htonl
+#elif defined(_CONSOLE_2)
+#include "Console2Includes.h"
 #else
 #include <arpa/inet.h>
 #endif
-
-// Was included for memset which now comes from string.h instead
-/*
-#if defined ( __APPLE__ ) || defined ( __APPLE_CC__ )
-	#include <malloc/malloc.h>
-#elif !defined(_COMPATIBILITY_2)
-	#include <malloc.h>
-#endif
-
-	*/
 
 // MSWin uses _copysign, others use copysign...
 #ifndef _WIN32
 #define _copysign copysign
 #endif
+
+
 
 using namespace RakNet;
 
@@ -60,7 +54,7 @@ BitStream::BitStream()
 	//numberOfBitsAllocated = 32 * 8;
 	numberOfBitsAllocated = BITSTREAM_STACK_ALLOCATION_SIZE * 8;
 	readOffset = 0;
-	//data = ( unsigned char* ) malloc( 32 );
+	//data = ( unsigned char* ) rakMalloc( 32 );
 	data = ( unsigned char* ) stackData;
 	
 #ifdef _DEBUG	
@@ -134,8 +128,8 @@ void BitStream::SetNumberOfBitsAllocated( const unsigned int lengthInBits )
 
 BitStream::~BitStream()
 {
-	if ( copyData && numberOfBitsAllocated > BITSTREAM_STACK_ALLOCATION_SIZE << 3)
-		free( data );  // Use realloc and free so we are more efficient than delete and new for resizing
+	if ( copyData && numberOfBitsAllocated > (BITSTREAM_STACK_ALLOCATION_SIZE << 3))
+		RakFree( data );  // Use realloc and free so we are more efficient than delete and new for resizing
 }
 
 void BitStream::Reset( void )
@@ -156,7 +150,7 @@ void BitStream::Reset( void )
 	//numberOfBitsAllocated=8;
 	readOffset = 0;
 	
-	//data=(unsigned char*)malloc(1);
+	//data=(unsigned char*)rakMalloc(1);
 	// if (numberOfBitsAllocated>0)
 	//  memset(data, 0, BITS_TO_BYTES(numberOfBitsAllocated));
 }
@@ -195,7 +189,7 @@ void BitStream::Write( BitStream *bitStream, int numberOfBits )
 		if ( numberOfBitsMod8 == 0 )
 		{
 			// New byte
-			if (bitStream->data[ bitStream->readOffset >> 3 ] & ( 0x80 >> ( bitStream->readOffset++ % 8 ) ) )
+			if (bitStream->data[ bitStream->readOffset >> 3 ] & ( 0x80 >> ( bitStream->readOffset & 7 ) ) )
 			{
 				// Write 1
 				data[ numberOfBitsUsed >> 3 ] = 0x80;
@@ -205,15 +199,17 @@ void BitStream::Write( BitStream *bitStream, int numberOfBits )
 				// Write 0
 				data[ numberOfBitsUsed >> 3 ] = 0;
 			}
+
 		}
 		else
 		{
 			// Existing byte
-			if (bitStream->data[ bitStream->readOffset >> 3 ] & ( 0x80 >> ( bitStream->readOffset++ % 8 ) ) )
+			if (bitStream->data[ bitStream->readOffset >> 3 ] & ( 0x80 >> ( bitStream->readOffset & 7 ) ) )
 				data[ numberOfBitsUsed >> 3 ] |= 0x80 >> ( numberOfBitsMod8 ); // Set the bit to 1
 			// else 0, do nothing
 		}
 
+		bitStream->readOffset++;
 		numberOfBitsUsed++;
 	}
 }
@@ -284,21 +280,37 @@ void BitStream::Write1( void )
 // Returns true if the next data read is a 1, false if it is a 0
 bool BitStream::ReadBit( void )
 {
-	return ( bool ) ( data[ readOffset >> 3 ] & ( 0x80 >> ( readOffset++ & 7 ) ) );
+	bool result = ( data[ readOffset >> 3 ] & ( 0x80 >> ( readOffset & 7 ) ) );
+	readOffset++;
+	return result;
 }
 
 // Align the bitstream to the byte boundary and then write the specified number of bits.
 // This is faster than WriteBits but wastes the bits to do the alignment and requires you to call
 // SetReadToByteAlignment at the corresponding read position
-void BitStream::WriteAlignedBytes( const unsigned char* input,
-	const int numberOfBytesToWrite )
+void BitStream::WriteAlignedBytes( const unsigned char* input, const int numberOfBytesToWrite )
 {
 #ifdef _DEBUG
-	assert( numberOfBytesToWrite > 0 );
+	if (numberOfBytesToWrite<=0)
+	{
+		assert( numberOfBytesToWrite > 0 );
+	}
 #endif
 	
 	AlignWriteToByteBoundary();
 	Write((const char*) input, numberOfBytesToWrite);
+}
+
+/// Aligns the bitstream, writes inputLength, and writes input. Won't write beyond maxBytesToWrite
+void BitStream::WriteAlignedBytesSafe( const char *input, const int inputLength, const int maxBytesToWrite )
+{
+	if (input==0 || inputLength==0)
+	{
+		WriteCompressed((unsigned int)0);
+		return;
+	}
+	WriteCompressed(inputLength);
+	WriteAlignedBytes((const unsigned char*) input, inputLength < maxBytesToWrite ? inputLength : maxBytesToWrite);
 }
 
 // Read bits, starting at the next aligned bits. Note that the modulus 8 starting offset of the
@@ -326,7 +338,29 @@ bool BitStream::ReadAlignedBytes( unsigned char* output, const int numberOfBytes
 	
 	return true;
 }
-
+bool BitStream::ReadAlignedBytesSafe( char *input, int &inputLength, const int maxBytesToRead )
+{
+	if (ReadCompressed(inputLength)==false)
+		return false;
+	if (inputLength > maxBytesToRead)
+		inputLength=maxBytesToRead;
+	if (inputLength==0)
+		return true;
+	return ReadAlignedBytes((unsigned char*) input, inputLength);
+}
+bool BitStream::ReadAlignedBytesSafeAlloc( char **input, int &inputLength, const int maxBytesToRead )
+{
+	rakFree(*input);
+	*input=0;
+	if (ReadCompressed(inputLength)==false)
+		return false;
+	if (inputLength > maxBytesToRead)
+		inputLength=maxBytesToRead;
+	if (inputLength==0)
+		return true;
+	*input = (char*) rakMalloc( BITS_TO_BYTES( inputLength ) );
+	return ReadAlignedBytes((unsigned char*) *input, inputLength);
+}
 // Align the next write and/or read to a byte boundary.  This can be used to 'waste' bits to byte align for efficiency reasons
 void BitStream::AlignWriteToByteBoundary( void )
 {
@@ -462,7 +496,7 @@ void BitStream::WriteCompressed( const unsigned char* input,
 bool BitStream::ReadBits( unsigned char* output, int numberOfBitsToRead, const bool alignBitsToRight )
 {
 #ifdef _DEBUG
-	assert( numberOfBitsToRead > 0 );
+//	assert( numberOfBitsToRead > 0 );
 #endif
 	if (numberOfBitsToRead<=0)
 	  return false;
@@ -610,7 +644,7 @@ void BitStream::AddBitsAndReallocate( const int numberOfBitsToWrite )
 		{
 			 if (amountToAllocate > BITSTREAM_STACK_ALLOCATION_SIZE)
 			 {
-				 data = ( unsigned char* ) malloc( amountToAllocate );
+				 data = ( unsigned char* ) rakMalloc( amountToAllocate );
 
 				 // need to copy the stack data over to our new memory area too
 				 memcpy ((void *)data, (void *)stackData, BITS_TO_BYTES( numberOfBitsAllocated )); 
@@ -618,7 +652,7 @@ void BitStream::AddBitsAndReallocate( const int numberOfBitsToWrite )
 		}
 		else
 		{
-			data = ( unsigned char* ) realloc( data, amountToAllocate );
+			data = ( unsigned char* ) RakRealloc( data, amountToAllocate );
 		}
 
 #ifdef _DEBUG
@@ -629,6 +663,10 @@ void BitStream::AddBitsAndReallocate( const int numberOfBitsToWrite )
 	
 	if ( newNumberOfBitsAllocated > numberOfBitsAllocated )
 		numberOfBitsAllocated = newNumberOfBitsAllocated;
+}
+unsigned int BitStream::GetNumberOfBitsAllocated(void) const
+{
+	return numberOfBitsAllocated;
 }
 
 // Should hit if reads didn't match writes
@@ -677,7 +715,7 @@ int BitStream::CopyData( unsigned char** _data ) const
 	assert( numberOfBitsUsed > 0 );
 #endif
 	
-	*_data = new unsigned char [ BITS_TO_BYTES( numberOfBitsUsed ) ];
+	*_data = (unsigned char*) rakMalloc( BITS_TO_BYTES( numberOfBitsUsed ) );
 	memcpy( *_data, data, sizeof(unsigned char) * ( BITS_TO_BYTES( numberOfBitsUsed ) ) );
 	return numberOfBitsUsed;
 }
@@ -686,6 +724,11 @@ int BitStream::CopyData( unsigned char** _data ) const
 void BitStream::IgnoreBits( const int numberOfBits )
 {
 	readOffset += numberOfBits;
+}
+
+void BitStream::IgnoreBytes( const int numberOfBytes )
+{
+	IgnoreBits(BYTES_TO_BITS(numberOfBytes));
 }
 
 // Move the write pointer to a position on the array.  Dangerous if you don't know what you are doing!
@@ -746,7 +789,7 @@ void BitStream::AssertCopyData( void )
 		
 		if ( numberOfBitsAllocated > 0 )
 		{
-			unsigned char * newdata = ( unsigned char* ) malloc( BITS_TO_BYTES( numberOfBitsAllocated ) );
+			unsigned char * newdata = ( unsigned char* ) rakMalloc( BITS_TO_BYTES( numberOfBitsAllocated ) );
 #ifdef _DEBUG
 			
 			assert( data );
@@ -765,14 +808,33 @@ void BitStream::ReverseBytes(unsigned char *input, unsigned char *output, int le
 	for (int i=0; i < length; i++)
 		output[i]=input[length-i-1];
 }
-bool BitStream::DoEndianSwap(void) const
+void BitStream::ReverseBytesInPlace(unsigned char *data, int length)
+{
+	unsigned char temp;
+	int i;
+	for (i=0; i < length; i++)
+	{
+		temp = data[i];
+		data[i]=data[length-i-1];
+		data[length-i-1]=temp;
+	}
+}
+bool BitStream::DoEndianSwap(void)
 {
 #ifndef __BITSTREAM_NATIVE_END
-	static bool swap=htonl(12345) == 12345;
-	return swap;
+	return IsNetworkOrder()==false;
 #else
 	return false;
 #endif
+}
+bool BitStream::IsBigEndian(void)
+{
+	return IsNetworkOrder();
+}
+bool BitStream::IsNetworkOrder(void)
+{
+	static bool isNetworkOrder=(htonl(12345) == 12345);
+	return isNetworkOrder;
 }
 
 #ifdef _MSC_VER

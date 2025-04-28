@@ -4,9 +4,11 @@
 #include <stdio.h>
 #include "BitStream.h"
 #include "StringCompressor.h"
+using namespace RakNet;
 
 StringTable* StringTable::instance=0;
 int StringTable::referenceCount=0;
+
 
 int StrAndBoolComp( char *const &key, const StrAndBool &data )
 {
@@ -24,7 +26,7 @@ StringTable::~StringTable()
 	for (i=0; i < orderedStringList.Size(); i++)
 	{
 		if (orderedStringList[i].b)
-			delete [] orderedStringList[i].str;
+			rakFree(orderedStringList[i].str);
 	}
 }
 
@@ -60,7 +62,7 @@ void StringTable::AddString(const char *str, bool copyString)
 	sab.b=copyString;
 	if (copyString)
 	{
-		sab.str = new char [strlen(str)+1];
+		sab.str = (char*) rakMalloc( strlen(str)+1 );
 		strcpy(sab.str, str);
 	}
 	else
@@ -69,7 +71,7 @@ void StringTable::AddString(const char *str, bool copyString)
 	}
 
 	// If it asserts inside here you are adding duplicate strings.
-	if (!orderedStringList.Insert(sab.str,sab))
+	if (orderedStringList.Insert(sab.str,sab, true)!=(unsigned)-1)
 	{
 		if (copyString)
 			delete sab.str;

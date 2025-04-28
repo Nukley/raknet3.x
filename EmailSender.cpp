@@ -10,8 +10,8 @@
 #include "FileList.h"
 #include <stdio.h>
 
-#if defined(_COMPATIBILITY_1)
-#include "Compatibility1Includes.h"
+#if defined(_CONSOLE_1)
+#include "Console1Includes.h"
 #endif
 
 #include "RakSleep.h"
@@ -123,7 +123,7 @@ char *EmailSender::Send(const char *hostAddress, unsigned short hostPort, const 
 	char *newBody;
 	int bodyLength;
 	bodyLength=(int)strlen(body);
-	newBody = new char [bodyLength*3];
+	newBody = (char*) rakMalloc( bodyLength*3 );
 	if (bodyLength>0)
 		newBody[0]=body[0];
 	for (i=1, j=1; i < bodyLength; i++)
@@ -192,7 +192,7 @@ char *EmailSender::Send(const char *hostAddress, unsigned short hostPort, const 
 	newBody[j++]='\n';
 	tcpInterface.Send(newBody, j, emailServer);
 
-	delete [] newBody;
+	rakFree(newBody);
 	int outputOffset;
 
 	// What a pain in the rear.  I have to map the binary to printable characters using 6 bits per character.
@@ -207,13 +207,13 @@ char *EmailSender::Send(const char *hostAddress, unsigned short hostPort, const 
 			sprintf(query, "Content-Type: APPLICATION/Octet-Stream; SizeOnDisk=%i; name=\"%s\"\r\nContent-Transfer-Encoding: BASE64\r\nContent-Description: %s\r\n\r\n", attachedFiles->fileList[i].dataLength, attachedFiles->fileList[i].filename, attachedFiles->fileList[i].filename);
 			tcpInterface.Send(query, (unsigned int)strlen(query), emailServer);
 
-			newBody = new char[(attachedFiles->fileList[i].dataLength*3)/2];
+			newBody = (char*) rakMalloc( (attachedFiles->fileList[i].dataLength*3)/2 );
 
 			outputOffset=Base64Encoding(attachedFiles->fileList[i].data, attachedFiles->fileList[i].dataLength, newBody, base64Map);
 
 			// Send the base64 mapped file.
 			tcpInterface.Send(newBody, outputOffset, emailServer);
-			delete [] newBody;
+			rakFree(newBody);
 
 		}
 

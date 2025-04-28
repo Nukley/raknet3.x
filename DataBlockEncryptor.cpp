@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -155,14 +155,14 @@ bool DataBlockEncryptor::Decrypt( unsigned char *input, int inputLength, unsigne
 	for ( index = 16; ( int ) index <= inputLength - 16;index += 16 )
 	{
 	//	secretKeyAES128.decrypt16( input + index );
-		blockDecrypt(&cipherInst, &keyDecrypt, input + index, 16, input + index);
+		blockDecrypt(&cipherInst, &keyDecrypt, input + index, 16, output + index);
 
 		for ( byteIndex = 0; byteIndex < 16; byteIndex++ )
 		{
 			if ( index + 16 == ( unsigned ) inputLength )
-				input[ index + byteIndex ] ^= input[ byteIndex ];
+				output[ index + byteIndex ] ^= input[ byteIndex ];
 			else
-				input[ index + byteIndex ] ^= input[ index + 16 + byteIndex ];
+				output[ index + byteIndex ] ^= input[ index + 16 + byteIndex ];
 		}
 
 		lastBlock = index;
@@ -170,18 +170,18 @@ bool DataBlockEncryptor::Decrypt( unsigned char *input, int inputLength, unsigne
 
 	// Decrypt the first block
 	//secretKeyAES128.decrypt16( input );
-	blockDecrypt(&cipherInst, &keyDecrypt, input, 16, input);
+	blockDecrypt(&cipherInst, &keyDecrypt, input, 16, output);
 
 	// Read checksum
 #ifdef HOST_ENDIAN_IS_BIG
-	checkSum = (unsigned int)input[0] | (unsigned int)(input[1]<<8) |
-		(unsigned int)(input[2]<<16)|(unsigned int)(input[3]<<24);
+	checkSum = (unsigned int)output[0] | (unsigned int)(output[1]<<8) |
+		(unsigned int)(output[2]<<16)|(unsigned int)(output[3]<<24);
 #else
-	memcpy( ( char* ) & checkSum, input, sizeof( checkSum ) );
+	memcpy( ( char* ) & checkSum, output, sizeof( checkSum ) );
 #endif
 
 	// Read the pad size variable
-	memcpy( ( char* ) & encodedPad, input + sizeof( randomChar ) + sizeof( checkSum ), sizeof( encodedPad ) );
+	memcpy( ( char* ) & encodedPad, output + sizeof( randomChar ) + sizeof( checkSum ), sizeof( encodedPad ) );
 
 	// Ignore the high 4 bytes
 	paddingBytes = encodedPad & 0x0F;
@@ -191,17 +191,16 @@ bool DataBlockEncryptor::Decrypt( unsigned char *input, int inputLength, unsigne
 	*outputLength = inputLength - sizeof( randomChar ) - sizeof( checkSum ) - sizeof( encodedPad ) - paddingBytes;
 
 	// Calculate the checksum on the data.
-	checkSumCalculator.Add( input + sizeof( checkSum ), *outputLength + sizeof( randomChar ) + sizeof( encodedPad ) + paddingBytes );
+	checkSumCalculator.Add( output + sizeof( checkSum ), *outputLength + sizeof( randomChar ) + sizeof( encodedPad ) + paddingBytes );
 
 	if ( checkSum != checkSumCalculator.Get() )
 		return false;
 
 	// Read the data
-	if ( input == output )
-		memmove( output, input + sizeof( randomChar ) + sizeof( checkSum ) + sizeof( encodedPad ) + paddingBytes, *outputLength );
-	else
-		memcpy( output, input + sizeof( randomChar ) + sizeof( checkSum ) + sizeof( encodedPad ) + paddingBytes, *outputLength );
-
+	//if ( input == output )
+		memmove( output, output + sizeof( randomChar ) + sizeof( checkSum ) + sizeof( encodedPad ) + paddingBytes, *outputLength );
+	//else
+	//	memcpy( output, input + sizeof( randomChar ) + sizeof( checkSum ) + sizeof( encodedPad ) + paddingBytes, *outputLength );
 
 	return true;
 }

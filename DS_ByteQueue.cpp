@@ -1,8 +1,8 @@
 #include "DS_ByteQueue.h"
 #include <string.h> // Memmove
-//#include <malloc.h> // PS3 doesn't have this
 #include <stdlib.h> // realloc
 #include <stdio.h>
+
 
 using namespace DataStructures;
 
@@ -28,7 +28,7 @@ void ByteQueue::WriteBytes(const char *in, unsigned length)
 		if (newAmountToAllocate<256)
 			newAmountToAllocate=256;
 		lengthAllocated=lengthAllocated + newAmountToAllocate;
-		data=(char*)realloc(data, lengthAllocated);
+		data=(char*)rakRealloc(data, lengthAllocated);
 		if (writeOffset < readOffset)
 		{
 			if (writeOffset <= newAmountToAllocate)
@@ -77,7 +77,7 @@ bool ByteQueue::ReadBytes(char *out, unsigned length, bool peek)
 void ByteQueue::Clear(void)
 {
 	if (lengthAllocated)
-		free(data);
+		rakFree(data);
 	readOffset=writeOffset=lengthAllocated=0;
 	data=0;
 }

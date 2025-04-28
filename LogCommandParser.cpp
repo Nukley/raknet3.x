@@ -201,7 +201,7 @@ unsigned LogCommandParser::Unsubscribe(SystemAddress systemAddress, const char *
 			{
 				// Unsubscribe from all and delete this user.
 				remoteUsers[i]=remoteUsers[remoteUsers.Size()-1];
-				remoteUsers.Del();
+				remoteUsers.RemoveFromEnd();
 				return 0;
 			}
 			else

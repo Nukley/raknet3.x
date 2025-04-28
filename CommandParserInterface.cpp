@@ -3,8 +3,8 @@
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
-#ifdef _COMPATIBILITY_1
-#include "Compatibility1Includes.h"
+#ifdef _CONSOLE_1
+#include "Console1Includes.h"
 #elif defined(_WIN32)
 // IP_DONTFRAGMENT is different between winsock 1 and winsock 2.  Therefore, Winsock2.h must be linked againt Ws2_32.lib
 // winsock.h must be linked against WSock32.lib.  If these two are mixed up the flag won't work correctly
@@ -101,7 +101,7 @@ void CommandParserInterface::RegisterCommand(unsigned char parameterCount, const
 	rc.command=command;
 	rc.commandHelp=commandHelp;
 	rc.parameterCount=parameterCount;
-	commandList.Insert( command, rc);
+	commandList.Insert( command, rc, true);
 }
 bool CommandParserInterface::GetRegisteredCommand(const char *command, RegisteredCommand *rc)
 {
@@ -151,7 +151,7 @@ void CommandParserInterface::ReturnResult(char *res, const char *command, Transp
 }
 void CommandParserInterface::ReturnResult(SystemAddress res, const char *command, TransportInterface *transport, SystemAddress systemAddress)
 {
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 	in_addr in;
 	in.s_addr = systemAddress.binaryAddress;
 	inet_ntoa( in );

@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -36,6 +36,7 @@ enum PluginReceiveResult
 
 #include "RakNetTypes.h"
 #include "Export.h"
+#include "RakMemoryOverride.h"
 
 /// \defgroup PLUGINS_GROUP PluginInterface
 
@@ -48,9 +49,12 @@ enum PluginReceiveResult
 /// \sa FullyConnectedMesh
 /// \sa PacketLogger
 /// \ingroup PLUGINS_GROUP
-class RAK_DLL_EXPORT PluginInterface
+class RAK_DLL_EXPORT PluginInterface : public RakNet::RakMemoryOverride
 {
 public:
+	PluginInterface();
+	virtual ~PluginInterface();
+
 	/// Called when the interface is attached
 	/// \param[in] peer the instance of RakPeer that is calling Receive
 	virtual void OnAttach(RakPeerInterface *peer);

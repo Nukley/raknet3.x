@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,8 +18,8 @@
 #ifndef __SIMPLE_TCP_SERVER
 #define __SIMPLE_TCP_SERVER
 
-#ifdef _COMPATIBILITY_1
-#include "Compatibility1Includes.h"
+#ifdef _CONSOLE_1
+#include "Console1Includes.h"
 #elif defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -38,6 +38,7 @@ typedef int SOCKET;
 #define SOCKET_ERROR -1
 #endif
 
+#include "RakMemoryOverride.h"
 #include "DS_List.h"
 #include "RakNetTypes.h"
 #include "SingleProducerConsumer.h"
@@ -47,7 +48,7 @@ struct RemoteClient;
 
 /// \internal
 /// \brief As the name says, a simple multithreaded TCP server.  Used by TelnetTransport
-class RAK_DLL_EXPORT TCPInterface
+class RAK_DLL_EXPORT TCPInterface : public RakNet::RakMemoryOverride
 {
 public:
 	TCPInterface();

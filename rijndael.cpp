@@ -33,7 +33,7 @@
 
 #include "Rijndael-Boxes.h"
 
-int ROUNDS;
+static int ROUNDS;
 
 static word8 shifts[3][4][2] = {
   {

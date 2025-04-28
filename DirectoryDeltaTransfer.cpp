@@ -19,56 +19,35 @@ public:
 	char outputSubdir[512];
 	FileListTransferCBInterface *onFileCallback;
 
-	virtual void OnFile(
-		unsigned fileIndex,
-		char *filename,
-		char *fileData,
-		unsigned compressedTransmissionLength,
-		unsigned finalDataLength,
-		unsigned short setID,
-		unsigned setCount,	
-		unsigned setTotalCompressedTransmissionLength,
-		unsigned setTotalFinalLength,
-		unsigned char context)
+	virtual bool OnFile(OnFileStruct *onFileStruct)
 	{
 		char fullPathToDir[1024];
 
-		if (filename && fileData && subdirLen < strlen(filename))
+		if (onFileStruct->fileName && onFileStruct->fileData && subdirLen < strlen(onFileStruct->fileName))
 		{
 			strcpy(fullPathToDir, outputSubdir);
-			strcat(fullPathToDir, filename+subdirLen);
-			WriteFileWithDirectories(fullPathToDir, (char*)fileData, finalDataLength);
+			strcat(fullPathToDir, onFileStruct->fileName+subdirLen);
+			WriteFileWithDirectories(fullPathToDir, (char*)onFileStruct->fileData, onFileStruct->finalDataLength);
 		}
 		else
 			fullPathToDir[0]=0;
 
-		onFileCallback->OnFile(fileIndex, fullPathToDir, fileData, compressedTransmissionLength, finalDataLength, setID, setCount, setTotalCompressedTransmissionLength, setTotalFinalLength, context);
+		return onFileCallback->OnFile(onFileStruct);
 	}
 
-	virtual void OnFileProgress(unsigned fileIndex,
-		char *filename,
-		unsigned compressedTransmissionLength,
-		unsigned finalDataLength,
-		unsigned short setID,
-		unsigned setCount,	
-		unsigned setTotalCompressedTransmissionLength,
-		unsigned setTotalFinalLength,
-		unsigned char context,
-		unsigned int partCount,
-		unsigned int partTotal,
-		unsigned int partLength)
+	virtual void OnFileProgress(OnFileStruct *onFileStruct,unsigned int partCount,unsigned int partTotal,unsigned int partLength)
 	{
 		char fullPathToDir[1024];
 
-		if (filename && subdirLen < strlen(filename))
+		if (onFileStruct->fileName && subdirLen < strlen(onFileStruct->fileName))
 		{
 			strcpy(fullPathToDir, outputSubdir);
-			strcat(fullPathToDir, filename+subdirLen);
+			strcat(fullPathToDir, onFileStruct->fileName+subdirLen);
 		}
 		else
 			fullPathToDir[0]=0;
 
-		onFileCallback->OnFileProgress(fileIndex, fullPathToDir, compressedTransmissionLength, finalDataLength, setID, setCount, setTotalCompressedTransmissionLength, setTotalFinalLength, context, partCount, partTotal, partLength);
+		onFileCallback->OnFileProgress(onFileStruct, partCount, partTotal, partLength);
 	}
 };
 
@@ -80,6 +59,7 @@ DirectoryDeltaTransfer::DirectoryDeltaTransfer()
 	rakPeer=0;
 	priority=HIGH_PRIORITY;
 	orderingChannel=0;
+	compressOutgoingSends=false;
 }
 DirectoryDeltaTransfer::~DirectoryDeltaTransfer()
 {
@@ -112,7 +92,7 @@ void DirectoryDeltaTransfer::AddUploadsFromSubdirectory(const char *subdir)
 }
 unsigned short DirectoryDeltaTransfer::DownloadFromSubdirectory(const char *subdir, const char *outputSubdir, bool prependAppDirToOutputSubdir, SystemAddress host, FileListTransferCBInterface *onFileCallback, PacketPriority _priority, char _orderingChannel)
 {
-	if (rakPeer->GetIndexFromSystemAddress(host)==-1)
+	if (rakPeer->IsConnected(host)==false)
 		return (unsigned short) -1;
 
 	DDTCallback *transferCallback;
@@ -185,7 +165,7 @@ void DirectoryDeltaTransfer::OnDownloadRequest(RakPeerInterface *peer, Packet *p
 	delta.PopulateDataFromDisk(applicationDirectory, true, false, true);
 
 	// This will call the ddtCallback interface that was passed to FileListTransfer::SetupReceive on the remote system
-	fileListTransfer->Send(&delta, rakPeer, packet->systemAddress, setId, priority, orderingChannel, true);
+	fileListTransfer->Send(&delta, rakPeer, packet->systemAddress, setId, priority, orderingChannel, compressOutgoingSends);
 }
 void DirectoryDeltaTransfer::OnAttach(RakPeerInterface *peer)
 {
@@ -220,6 +200,10 @@ void DirectoryDeltaTransfer::OnShutdown(RakPeerInterface *peer)
 unsigned DirectoryDeltaTransfer::GetNumberOfFilesForUpload(void) const
 {
 	return availableUploads->fileList.Size();
+}
+void DirectoryDeltaTransfer::SetCompressOutgoingSends(bool compress)
+{
+	compressOutgoingSends=compress;
 }
 
 #ifdef _MSC_VER

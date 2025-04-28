@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,6 +18,7 @@
 #ifndef __DIRECTORY_DELTA_TRANSFER_H
 #define __DIRECTORY_DELTA_TRANSFER_H
 
+#include "RakMemoryOverride.h"
 #include "RakNetTypes.h"
 #include "Export.h"
 #include "PluginInterface.h"
@@ -102,6 +103,12 @@ public:
 	/// \return How many files are available for upload
 	unsigned GetNumberOfFilesForUpload(void) const;
 
+	/// Set if we should compress outgoing sends or not
+	/// Defaults to false, because this results in a noticeable freeze on large requests
+	/// You can set this to true if you only send small files though
+	/// \param[in] compress True to compress, false to not.
+	void SetCompressOutgoingSends(bool compress);
+
 	/// \internal For plugin handling
 	virtual void OnAttach(RakPeerInterface *peer);
 	/// \internal For plugin handling
@@ -119,6 +126,7 @@ protected:
 	RakPeerInterface *rakPeer;
 	PacketPriority priority;
 	char orderingChannel;
+	bool compressOutgoingSends;
 };
 
 #endif

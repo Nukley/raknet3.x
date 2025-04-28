@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -19,6 +19,7 @@
 #include "MessageIdentifiers.h"
 #include "BitStream.h"
 #include "ConnectionGraph.h"
+#include "NatPunchthrough.h"
 #include <string.h>
 #include <assert.h>
 
@@ -29,27 +30,35 @@
 FullyConnectedMesh::FullyConnectedMesh()
 {
 	pw=0;
+	natPunchthrough=0;
 }
 
 FullyConnectedMesh::~FullyConnectedMesh()
 {
 	if (pw)
-		delete [] pw;
+		rakFree(pw);
 }
 
-void FullyConnectedMesh::Startup(const char *password)
+void FullyConnectedMesh::Startup(const char *password, int _passwordLength)
 {
 	if (pw)
-		delete [] pw;
-	if (password && password[0])
+		rakFree(pw);
+	if (password)
 	{
-		pw = new char [strlen(password)+1];
-		strcpy(pw, password);
+		pw = (char*) rakMalloc( _passwordLength );
+		memcpy(pw, password, _passwordLength);
+		passwordLength=_passwordLength;
 	}
 	else
 		pw=0;
 	
 }
+
+void FullyConnectedMesh::ConnectWithNatPunchthrough(NatPunchthrough *np, SystemAddress _facilitator)
+	{
+	natPunchthrough=np;
+	facilitator=_facilitator;
+	}
 
 #ifdef _MSC_VER
 #pragma warning( disable : 4100 ) // warning C4100: <variable name> : unreferenced formal parameter
@@ -80,12 +89,23 @@ PluginReceiveResult FullyConnectedMesh::OnReceive(RakPeerInterface *peer, Packet
 			SystemAddress node1, node2;
 			b.Read(node1);
 			b.Read(group1);
-			if (peer->GetIndexFromSystemAddress(node1)==-1)
-				peer->Connect(node1.ToString(false), node1.port, pw, pw ? (int)strlen(pw) : 0);
+			if (peer->IsConnected(node1,true)==false)
+			{
+				if (natPunchthrough)
+					natPunchthrough->Connect(node1, pw, pw ? passwordLength : 0, facilitator);
+				else
+					peer->Connect(node1.ToString(false), node1.port, pw, pw ? passwordLength : 0);
+			}				
 			b.Read(node2);
 			b.Read(group2);
-			if (peer->GetIndexFromSystemAddress(node2)==-1)
-				peer->Connect(node2.ToString(false), node2.port, pw, pw ? (int)strlen(pw) : 0);
+			if (peer->IsConnected(node2,true)==false)
+			{
+				if (natPunchthrough)
+					natPunchthrough->Connect(node2, pw, pw ? passwordLength : 0, facilitator);
+				else
+					peer->Connect(node2.ToString(false), node2.port, pw, pw ? passwordLength : 0);
+			}
+				
 			break;
 		}
 	}

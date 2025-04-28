@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -19,7 +19,9 @@
 #define __FULLY_CONNECTED_MESH_H
 
 class RakPeerInterface;
+class NatPunchthrough;
 #include "PluginInterface.h"
+#include "RakMemoryOverride.h"
 
 /// \defgroup FULLY_CONNECTED_MESH_GROUP FullyConnectedMesh
 /// \ingroup PLUGINS_GROUP
@@ -36,8 +38,13 @@ public:
 	// --------------------------------------------------------------------------------------------
 	// User functions
 	// --------------------------------------------------------------------------------------------
-	// Set the password to use to connect to the other systems
- 	void Startup(const char *password);
+	/// Set the password to use to connect to the other systems
+ 	void Startup(const char *password, int _passwordLength);
+
+	/// Use the NAT punchthrough system to connect rather than calling directly
+	/// \param[in] np Pointer to an attached instance of the NatPunchthrough plugin
+	/// \param[in] _facilitator Address of the NAT punchthrough facilitator
+	void ConnectWithNatPunchthrough(NatPunchthrough *np, SystemAddress _facilitator);
 
 	// --------------------------------------------------------------------------------------------
 	// Packet handling functions
@@ -49,6 +56,10 @@ public:
 
 protected:
 	char *pw;
+	int passwordLength;
+
+	NatPunchthrough *natPunchthrough;
+	SystemAddress facilitator;
 };
 
 #endif

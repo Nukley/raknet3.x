@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -47,7 +47,7 @@ public:
 	/// This is useful for security, since you usually want to restrict what kind of messages you have to worry about from (as an example) other
 	/// clients in a client / server system
 	/// \param[in] restrict True to restrict what messages will be routed.  False to not do so (default).
-	void SetRestrictRoutingByType(bool restrict);
+	void SetRestrictRoutingByType(bool restrict__);
 
 	/// If types are restricted, this adds an allowed message type to be routed
 	/// \param[in] messageId The type to not allow routing of.

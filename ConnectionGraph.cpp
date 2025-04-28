@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -27,8 +27,6 @@
 #ifdef _MSC_VER
 #pragma warning( push )
 #endif
-
-extern Packet *AllocPacket(unsigned dataSize);
 
 static const int connectionGraphChannel=31;
 
@@ -72,7 +70,7 @@ ConnectionGraph::ConnectionGraph()
 	DataStructures::OrderedList<ConnectionGraph::SystemAddressAndGroupId, ConnectionGraph::SystemAddressAndGroupId>::IMPLEMENT_DEFAULT_COMPARISON();
 	DataStructures::OrderedList<ConnectionGraphGroupID, ConnectionGraphGroupID>::IMPLEMENT_DEFAULT_COMPARISON();
 
-	subscribedGroups.Insert(0,0);
+	subscribedGroups.Insert(0,0, true);
 }
 
 ConnectionGraph::~ConnectionGraph()
@@ -92,7 +90,7 @@ void ConnectionGraph::SetPassword(const char *password)
 	if (password && password[0])
 	{
 		assert(strlen(password)<256);
-		pw=new char [strlen(password)+1];
+		pw=(char*) rakMalloc( strlen(password)+1 );
 		strcpy(pw, password);
 	}
 }
@@ -141,7 +139,7 @@ PluginReceiveResult ConnectionGraph::OnReceive(RakPeerInterface *peer, Packet *p
 		return RR_STOP_PROCESSING_AND_DEALLOCATE;
 	case ID_CONNECTION_GRAPH_REPLY:
 		OnConnectionGraphReply(peer, packet);
-		return RR_STOP_PROCESSING_AND_DEALLOCATE;
+		return RR_CONTINUE_PROCESSING;
 	case ID_CONNECTION_GRAPH_UPDATE:
 		OnConnectionGraphUpdate(peer, packet);
 		return RR_STOP_PROCESSING_AND_DEALLOCATE;
@@ -165,7 +163,7 @@ PluginReceiveResult ConnectionGraph::OnReceive(RakPeerInterface *peer, Packet *p
 	case ID_DISCONNECTION_NOTIFICATION:
 		{
 			unsigned char packetId;
-			// Change toe remote connection lost and relay the message
+			// Change to remote connection lost and relay the message
 			if (packet->data[0]==ID_CONNECTION_LOST)
 				packetId=ID_CONNECTION_GRAPH_CONNECTION_LOST;
 			else
@@ -228,7 +226,7 @@ void ConnectionGraph::AddNewConnection(RakPeerInterface *peer, SystemAddress sys
 }
 void ConnectionGraph::SubscribeToGroup(ConnectionGraphGroupID groupId)
 {
-	subscribedGroups.Insert(groupId, groupId);
+	subscribedGroups.Insert(groupId, groupId, true);
 }
 void ConnectionGraph::UnsubscribeFromGroup(ConnectionGraphGroupID groupId)
 {
@@ -310,7 +308,7 @@ void ConnectionGraph::OnConnectionGraphReply(RakPeerInterface *peer, Packet *pac
 
 	// Forward the updated graph to all current participants
 	DataStructures::OrderedList<SystemAddress,SystemAddress> ignoreList;
-	ignoreList.Insert(packet->systemAddress,packet->systemAddress);
+	ignoreList.Insert(packet->systemAddress,packet->systemAddress, true);
 	BroadcastGraphUpdate(ignoreList, peer);
 }
 void ConnectionGraph::OnConnectionGraphUpdate(RakPeerInterface *peer, Packet *packet)
@@ -330,7 +328,7 @@ void ConnectionGraph::OnConnectionGraphUpdate(RakPeerInterface *peer, Packet *pa
 
 	// Forward the updated graph to all participants.
 	if (ignoreList.HasData(packet->systemAddress)==false)
-		ignoreList.Insert(packet->systemAddress,packet->systemAddress);
+		ignoreList.Insert(packet->systemAddress,packet->systemAddress, true);
 	BroadcastGraphUpdate(ignoreList, peer);
 }
 void ConnectionGraph::OnNewConnection(RakPeerInterface *peer, Packet *packet)
@@ -352,7 +350,7 @@ void ConnectionGraph::OnNewConnection(RakPeerInterface *peer, Packet *packet)
 	DataStructures::OrderedList<SystemAddress,SystemAddress> ignoreList;
 	DeserializeIgnoreList(ignoreList, &inBitstream);
 	if (ignoreList.HasData(packet->systemAddress)==false)
-		ignoreList.Insert(packet->systemAddress,packet->systemAddress);
+		ignoreList.Insert(packet->systemAddress,packet->systemAddress, true);
 	AddAndRelayConnection(ignoreList, node1, node2, ping, peer);	
 }
 bool ConnectionGraph::OnConnectionLost(RakPeerInterface *peer, Packet *packet, unsigned char packetId)
@@ -371,7 +369,7 @@ bool ConnectionGraph::OnConnectionLost(RakPeerInterface *peer, Packet *packet, u
 	DataStructures::OrderedList<SystemAddress,SystemAddress> ignoreList;
 	DeserializeIgnoreList(ignoreList, &inBitstream);
 	if (ignoreList.HasData(packet->systemAddress)==false)
-		ignoreList.Insert(packet->systemAddress, packet->systemAddress);
+		ignoreList.Insert(packet->systemAddress, packet->systemAddress, true);
 	
 	return RemoveAndRelayConnection(ignoreList, packetId, node1, node2, peer);
 }
@@ -388,7 +386,7 @@ bool ConnectionGraph::DeserializeIgnoreList(DataStructures::OrderedList<SystemAd
 			assert(0);
 			return false;
 		}
-		ignoreList.Insert(temp,temp);
+		ignoreList.Insert(temp,temp, true);
 	}
 	return true;
 }
@@ -496,7 +494,7 @@ void ConnectionGraph::RemoveParticipant(SystemAddress systemAddress)
 void ConnectionGraph::AddParticipant(SystemAddress systemAddress)
 {
 	if (participantList.HasData(systemAddress)==false)
-		participantList.Insert(systemAddress,systemAddress);
+		participantList.Insert(systemAddress,systemAddress, true);
 }
 
 void ConnectionGraph::AddAndRelayConnection(DataStructures::OrderedList<SystemAddress,SystemAddress> &ignoreList, const SystemAddressAndGroupId &conn1, const SystemAddressAndGroupId &conn2, unsigned short ping, RakPeerInterface *peer)
@@ -509,13 +507,15 @@ void ConnectionGraph::AddAndRelayConnection(DataStructures::OrderedList<SystemAd
 	assert(conn1.systemAddress!=UNASSIGNED_SYSTEM_ADDRESS);
 	assert(conn2.systemAddress!=UNASSIGNED_SYSTEM_ADDRESS);
 
-	graph.AddConnection(conn1,conn2,ping);
-
 	if (IsNewRemoteConnection(conn1,conn2,peer))
 	{
 		NotifyUserOfRemoteConnection(conn1,conn2,ping,peer);
-		return;
+
+		// What was this return here for?
+	//	return;
 	}
+
+	graph.AddConnection(conn1,conn2,ping);
 
 	RakNet::BitStream outBitstream;
 	outBitstream.Write((MessageID)ID_CONNECTION_GRAPH_NEW_CONNECTION);
@@ -525,9 +525,9 @@ void ConnectionGraph::AddAndRelayConnection(DataStructures::OrderedList<SystemAd
 	outBitstream.Write(conn2.groupId);
 	outBitstream.Write(ping);
 	if (ignoreList.HasData(conn2.systemAddress)==false)
-		ignoreList.Insert(conn2.systemAddress,conn2.systemAddress);
+		ignoreList.Insert(conn2.systemAddress,conn2.systemAddress, true);
 	if (ignoreList.HasData(conn1.systemAddress)==false)
-		ignoreList.Insert(conn1.systemAddress,conn1.systemAddress);
+		ignoreList.Insert(conn1.systemAddress,conn1.systemAddress, true);
 	SerializeIgnoreListAndBroadcast(&outBitstream, ignoreList, peer);
 }
 bool ConnectionGraph::RemoveAndRelayConnection(DataStructures::OrderedList<SystemAddress,SystemAddress> &ignoreList, unsigned char packetId, const SystemAddress node1, const SystemAddress node2, RakPeerInterface *peer)
@@ -545,9 +545,9 @@ bool ConnectionGraph::RemoveAndRelayConnection(DataStructures::OrderedList<Syste
 	outBitstream.Write(node2);
 
 	if (ignoreList.HasData(node1)==false)
-		ignoreList.Insert(node1,node1);
+		ignoreList.Insert(node1,node1, true);
 	if (ignoreList.HasData(node2)==false)
-		ignoreList.Insert(node2,node2);
+		ignoreList.Insert(node2,node2, true);
 	SerializeIgnoreListAndBroadcast(&outBitstream, ignoreList, peer);
 
 	return true;
@@ -574,7 +574,7 @@ void ConnectionGraph::SerializeIgnoreListAndBroadcast(RakNet::BitStream *outBits
 
 	SystemAddress self = peer->GetExternalID(sendList[0]);
 	if (ignoreList.HasData(self)==false)
-		ignoreList.Insert(self,self);
+		ignoreList.Insert(self,self, true);
 	outBitstream->Write((unsigned short) (ignoreList.Size()+sendList.Size()));
 	for (i=0; i < ignoreList.Size(); i++)
 		outBitstream->Write(ignoreList[i]);
@@ -591,7 +591,7 @@ bool ConnectionGraph::IsNewRemoteConnection(const SystemAddressAndGroupId &conn1
 	if (graph.HasConnection(conn1,conn2)==false &&
 		subscribedGroups.HasData(conn1.groupId) &&
 		subscribedGroups.HasData(conn2.groupId) &&
-		(peer->GetIndexFromSystemAddress(conn1.systemAddress)==-1 || peer->GetIndexFromSystemAddress(conn2.systemAddress)==-1))
+		(peer->IsConnected(conn1.systemAddress)==false || peer->IsConnected(conn2.systemAddress)==false))
 	{
 		SystemAddress externalId1, externalId2;
 		externalId1=peer->GetExternalID(conn1.systemAddress);
@@ -605,7 +605,7 @@ void ConnectionGraph::NotifyUserOfRemoteConnection(const SystemAddressAndGroupId
 {
 	// Create a packet to tell the user of this event
 	static const int length=sizeof(MessageID) + (sizeof(SystemAddress) + sizeof(ConnectionGraphGroupID)) * 2 + sizeof(unsigned short);
-	Packet *p = AllocPacket(length);
+	Packet *p = peer->AllocatePacket(length);
 	RakNet::BitStream b(p->data, length, false);
 	p->bitSize=p->length*8;
 	b.SetWriteOffset(0);
@@ -615,6 +615,10 @@ void ConnectionGraph::NotifyUserOfRemoteConnection(const SystemAddressAndGroupId
 	b.Write(conn2.systemAddress);
 	b.Write(conn2.groupId);
 	b.Write(ping);
+	if (peer->IsConnected(conn2.systemAddress)==false)
+		p->systemAddress=conn2.systemAddress;
+	else
+		p->systemAddress=conn1.systemAddress;
 	peer->PushBackPacket(p, false);
 }
 

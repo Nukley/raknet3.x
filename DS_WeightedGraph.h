@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -24,6 +24,7 @@
 #include "DS_Queue.h"
 #include "DS_Tree.h"
 #include <assert.h>
+#include "RakMemoryOverride.h"
 #ifdef _DEBUG
 #include <stdio.h>
 #endif
@@ -37,7 +38,7 @@
 namespace DataStructures
 {
 	template <class node_type, class weight_type, bool allow_unlinkedNodes>
-	class RAK_DLL_EXPORT WeightedGraph
+	class RAK_DLL_EXPORT WeightedGraph : public RakNet::RakMemoryOverride
 	{
 	public:
 		static void IMPLEMENT_DEFAULT_COMPARISON(void) {DataStructures::defaultMapKeyComparison<node_type>(node_type(),node_type());}
@@ -70,7 +71,7 @@ namespace DataStructures
 		// 08/23/06 Won't compile as a DLL inside this struct
 	//	struct  
 	//	{
-			bool isValid;
+			bool isValidPath;
 			node_type rootNode;
 			DataStructures::OrderedList<node_type, node_type> costMatrixIndices;
 			weight_type *costMatrix;
@@ -87,7 +88,7 @@ namespace DataStructures
 	template <class node_type, class weight_type, bool allow_unlinkedNodes>
 		WeightedGraph<node_type, weight_type, allow_unlinkedNodes>::WeightedGraph()
 	{
-		isValid=false;
+		isValidPath=false;
 		costMatrix=0;
 	}
 
@@ -102,8 +103,8 @@ namespace DataStructures
 	{
 		adjacencyLists=original_copy.adjacencyLists;
 		
-		isValid=original_copy.isValid;
-		if (isValid)
+		isValidPath=original_copy.isValidPath;
+		if (isValidPath)
 		{
 			rootNode=original_copy.rootNode;
 			costMatrixIndices=original_copy.costMatrixIndices;
@@ -119,8 +120,8 @@ namespace DataStructures
 	{
 		adjacencyLists=original_copy.adjacencyLists;
 
-		isValid=original_copy.isValid;
-		if (isValid)
+		isValidPath=original_copy.isValidPath;
+		if (isValidPath)
 		{
 			rootNode=original_copy.rootNode;
 			costMatrixIndices=original_copy.costMatrixIndices;
@@ -232,7 +233,7 @@ namespace DataStructures
 			return true;
 		}
 
-		if (isValid==false || rootNode!=startNode)
+		if (isValidPath==false || rootNode!=startNode)
 		{
 			ClearDijkstra();
 			GenerateDisjktraMatrix(startNode, INFINITE_WEIGHT);
@@ -394,6 +395,9 @@ namespace DataStructures
 	template <class node_type, class weight_type, bool allow_unlinkedNodes>
 		void WeightedGraph<node_type, weight_type, allow_unlinkedNodes>::GenerateDisjktraMatrix(node_type startNode, weight_type INFINITE_WEIGHT)
 	{
+		if (adjacencyLists.Size()==0)
+			return;
+
 		costMatrix = new weight_type[adjacencyLists.Size() * adjacencyLists.Size()];
 		leastNodeArray = new node_type[adjacencyLists.Size()];
 
@@ -409,7 +413,7 @@ namespace DataStructures
 		for (col=0; col < adjacencyLists.Size(); col++)
 		{
 			// This should be already sorted, so it's a bit inefficient to do an insertion sort, but what the heck
-			costMatrixIndices.Insert(adjacencyLists.GetKeyAtIndex(col),adjacencyLists.GetKeyAtIndex(col));
+			costMatrixIndices.Insert(adjacencyLists.GetKeyAtIndex(col),adjacencyLists.GetKeyAtIndex(col), true);
 		}
 		for (col=0; col < adjacencyLists.Size() * adjacencyLists.Size(); col++)
 			costMatrix[col]=INFINITE_WEIGHT;
@@ -419,9 +423,12 @@ namespace DataStructures
 		rootNode=startNode;
 
 		// Clear the starting node column
-		adjacentIndex=adjacencyLists.GetIndexAtKey(startNode);
-		for (row2=0; row2 < adjacencyLists.Size(); row2++)
-			costMatrix[row2*adjacencyLists.Size() + adjacentIndex]=0;
+		if (adjacencyLists.Size())
+		{
+			adjacentIndex=adjacencyLists.GetIndexAtKey(startNode);
+			for (row2=0; row2 < adjacencyLists.Size(); row2++)
+				costMatrix[row2*adjacencyLists.Size() + adjacentIndex]=0;
+		}
 
 		while (row < adjacencyLists.Size()-1)
 		{
@@ -464,7 +471,7 @@ namespace DataStructures
 			if (minHeap.Size()==0)
 			{
 				// Unreachable nodes
-				isValid=true;
+				isValidPath=true;
 				return;
 			}
 
@@ -490,15 +497,15 @@ namespace DataStructures
 #endif
 		*/
 
-		isValid=true;
+		isValidPath=true;
 	}
 
 	template <class node_type, class weight_type, bool allow_unlinkedNodes>
 		void WeightedGraph<node_type, weight_type, allow_unlinkedNodes>::ClearDijkstra(void)
 	{
-		if (isValid)
+		if (isValidPath)
 		{
-			isValid=false;
+			isValidPath=false;
 			delete [] costMatrix;
 			delete [] leastNodeArray;
 			costMatrixIndices.Clear();

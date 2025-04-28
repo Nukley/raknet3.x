@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -38,7 +38,7 @@ namespace DataStructures
 
 	/// \note IMPORTANT! If you use defaultMapKeyComparison then call IMPLEMENT_DEFAULT_COMPARISON or you will get an unresolved external linker error.
 	template <class key_type, class data_type, int (*key_comparison_func)(const key_type&, const key_type&)=defaultMapKeyComparison<key_type> >
-	class RAK_DLL_EXPORT Map
+	class RAK_DLL_EXPORT Map : public RakNet::RakMemoryOverride
 	{
 	public:
 		static void IMPLEMENT_DEFAULT_COMPARISON(void) {DataStructures::defaultMapKeyComparison<key_type>(key_type(),key_type());}
@@ -47,6 +47,8 @@ namespace DataStructures
 		{
 			MapNode() {}
 			MapNode(key_type _key, data_type _data) : mapNodeKey(_key), mapNodeData(_data) {}
+			MapNode& operator = ( const MapNode& input ) {mapNodeKey=input.mapNodeKey; mapNodeData=input.mapNodeData; return *this;}
+			MapNode( const MapNode & input) {mapNodeKey=input.mapNodeKey; mapNodeData=input.mapNodeData;}
 			key_type mapNodeKey;
 			data_type mapNodeData;
 		};
@@ -147,7 +149,10 @@ namespace DataStructures
 		bool objectExists;
 		unsigned index;
 		index=mapNodeList.GetIndexFromKey(key, &objectExists);
-		assert(objectExists);
+		if (objectExists==false)
+		{
+			assert(objectExists);
+		}
 		SaveLastSearch(key,index);
 		return index;
 	}
@@ -198,7 +203,7 @@ namespace DataStructures
 		}
 		else
 		{
-			SaveLastSearch(key,mapNodeList.Insert(key,MapNode(key,data)));
+			SaveLastSearch(key,mapNodeList.Insert(key,MapNode(key,data), true));
 		}
 	}
 
@@ -231,7 +236,7 @@ namespace DataStructures
 		index=mapNodeList.GetIndexFromKey(key, &objectExists);
 		assert(objectExists==false);
 #endif
-		SaveLastSearch(key,mapNodeList.Insert(key,MapNode(key,data)));
+		SaveLastSearch(key,mapNodeList.Insert(key,MapNode(key,data), true));
 	}
 
 	template <class key_type, class data_type, int (*key_comparison_func)(const key_type&,const key_type&)>

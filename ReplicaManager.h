@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -22,7 +22,7 @@
 #include "RakNetTypes.h"
 #include "DS_OrderedList.h"
 #include "PluginInterface.h"
-#include "NetworkIDGenerator.h"
+#include "NetworkIDObject.h"
 #include "DS_Queue.h"
 #include "ReplicaEnums.h"
 
@@ -32,10 +32,56 @@ namespace RakNet
 	class BitStream;
 };
 class Replica;
+class ReplicaManager;
 
 /// \defgroup REPLICA_MANAGER_GROUP ReplicaManager
 /// \ingroup PLUGINS_GROUP
 
+/// An interface for a class that handles the construction callback from the network
+/// See ReplicaManager::SetReceiveConstructionCB
+/// \ingroup REPLICA_MANAGER_GROUP
+class ReceiveConstructionInterface
+{
+public:
+	/// Called when a network object needs to be created by the ReplicaManager class
+	/// \param[in] inBitStream The bitstream that was written to in Replica::SendConstruction
+	/// \param[in] timestamp If in Replica::SendConstruction you set sendTimestamp to true, this is the time the packet was sent.  Otherwise it is 0.
+	/// \param[in] networkID If the remote object had an NetworkID set by the time Replica::SendConstruction was called it is here.
+	/// \param[in] existingNetworkObject If networkID is already in use, existingNetworkObject is the pointer to that object.  If existingReplica is non-zero, you usually shouldn't create a new object, unless you are reusing networkIDs, such as having the client and server both on the same computer
+	/// \param[in] senderId Which SystemAddress sent this packet.
+	/// \param[in] caller Which instance of ReplicaManager is calling this interface
+	/// \return See ReplicaReturnResult
+	virtual ReplicaReturnResult ReceiveConstruction(RakNet::BitStream *inBitStream, RakNetTime timestamp, NetworkID networkID, NetworkIDObject *existingObject, SystemAddress senderId, ReplicaManager *caller)=0;
+};
+
+/// An interface for a class that handles the call to send the download complete notification
+/// See ReplicaManager::SetDownloadCompleteCB
+/// \ingroup REPLICA_MANAGER_GROUP
+class SendDownloadCompleteInterface
+{
+public:
+	/// \param[out] outBitStream Write whatever you want to this bitstream.  It will arrive in the receiveDownloadCompleteCB callback.
+	/// \param[in] currentTime The current time that would be returned by RakNet::GetTime().  That's a slow call I do already, so you can use the parameter instead of having to call it yourself.
+	/// \param[in] senderId Who we are sending to
+	/// \param[in] caller Which instance of ReplicaManager is calling this interface
+	/// \return See ReplicaReturnResult
+	virtual ReplicaReturnResult SendDownloadComplete(RakNet::BitStream *outBitStream, RakNetTime currentTime, SystemAddress senderId, ReplicaManager *caller)=0;
+};
+
+/// An interface for a class that handles the call to receive the download complete notification
+/// See ReplicaManager::SetDownloadCompleteCB
+/// \ingroup REPLICA_MANAGER_GROUP
+class ReceiveDownloadCompleteInterface
+{
+public:
+	/// \param[in] inBitStream The bitstream that was written to in SendDownloadCompleteInterface::SendDownloadComplete
+	/// \param[in] senderId The SystemAddress of the system that send the datagram
+	/// \param[in] caller Which instance of ReplicaManager is calling this interface
+	/// \return See ReplicaReturnResult
+	virtual ReplicaReturnResult ReceiveDownloadComplete(RakNet::BitStream *inBitStream, SystemAddress senderId, ReplicaManager *caller)=0;
+};
+
+/// \deprecated Use RM2_ReplicaManager in ReplicaManager2.h
 /// ReplicaManager is a system manager for your game objects that performs the following tasks:
 /// 1. Tracks all locally registered game objects and players and only performs operations to and for those objects and players
 /// 2. Allows you to automatically turn off unneeded local and remote functions for your game objects, thus providing convenience and security against unauthorized sends.
@@ -58,6 +104,7 @@ class Replica;
 /// 3. Set networkIDs via SetNetworkID() on newly created objects.
 /// 4. Object sub-serialization.  Serialize only granular on the level of entire objects.  If you want to serialize part of the object, you need to set your own flags and indicate in the BitStream which parts were sent and which not.
 /// \brief A management system for your game objects and players to make serialization, scoping, and object creation and destruction easier.
+/// \pre You must call RakPeer::SetNetworkIDManager to use this plugin.
 /// \ingroup REPLICA_MANAGER_GROUP
 class RAK_DLL_EXPORT ReplicaManager : public PluginInterface
 {
@@ -67,6 +114,14 @@ public:
 
 	/// Destructor
 	virtual ~ReplicaManager();
+
+	/// If you think all objects should have been removed, call this to assert on any that were not.
+	/// Useful for debugging shutdown or restarts
+	void AssertReplicatedObjectsClear(void);
+
+	/// If you think all participants should have been removed, call this to assert on any that were not.
+	/// Useful for debugging shutdown or restarts
+	void AssertParticipantsClear(void);
 
 	/// Do or don't automatically call AddParticipant when new systems connect to us.
 	/// Won't add automatically add connections that already exist before this was called
@@ -87,8 +142,7 @@ public:
 	bool RemoveParticipant(SystemAddress systemAddress);
 
 	/// Construct the specified object on the specified system
-	/// Replica::SendConstruction will be called on the next update cycle for the player you specify
-	/// Nothing is actually created - this just signals that another system wants you to do so.
+	/// Replica::SendConstruction will be called immediately, this is a change from before, because otherwise if you later send other packets that refer to this object, this object won't exist yet.
 	/// The other system will get Replica::ReceiveConstruction
 	/// If your system assigns NetworkIDs, do so before calling Replicate as the NetworkID is automatically included in the packet.
 	/// Replicate packets that are sent to systems that already have this NetworkID are ignored.
@@ -96,6 +150,7 @@ public:
 	/// \note To perform scoping and serialize updates on an object already created by another system, call Construct with \a isCopy true.
 	/// \note Setting \a isCopy true will consider the object created on that system without actually trying to create it.
 	/// \note If you don't need to send updates to other systems for this object, it is more efficient to use ReferencePointer instead.
+	/// \note In a client / server environment, be sure to call Construct() with isCopy true to let the ReplicaManager know that the server has this object.  Otherwise you won't be able to send Scope or Serialize changes to the server.
 	/// \param[in] replica A pointer to your object
 	/// \param[in] isCopy True means that this is a copy of an object that already exists on the systems specified by \a systemAddress and \a broadcast.  If true, we will consider these systems as having the object without sending a datagram to them.  SendConstruction will NOT be called for objects which \a isCopy is true.
 	/// \param[in] systemAddress The participant to send the command to, or the one to exclude if broadcast is true.
@@ -113,7 +168,7 @@ public:
 	/// \note It is important to call this before deleting your object.  Otherwise this system will crash the next Update call.
 	/// \param[in] replica A pointer to your object
 	/// \param[in] systemAddress The participant to send the command to, or the one to exclude if broadcast is true.
-	/// \param[in] broadcast True to send to all.  If systemAddress!=UNASSIGNED_SYSTEM_ADDRESS then this means send to all but that participant
+	/// \param[in] broadcast True to send to all systems that have the object.  If systemAddress!=UNASSIGNED_SYSTEM_ADDRESS then this means send to all but that participant
 	void Destruct(Replica *replica, SystemAddress systemAddress, bool broadcast);
 
 	/// This makes sure the object is tracked, so you can get calls on it.
@@ -158,30 +213,16 @@ public:
 	/// Required callback
 	/// Set your callback to parse requests to create new objects.  Specifically, when Replica::SendConstruction is called and the networkID of the object is either unset or can't be found, this callback will get that call.
 	/// How do you know what object to create?  It's up to you, but I suggest in Replica::SendConstruction you encode the class name.  The best way to do this is with the StringTable class.
-	/// \note If you return true from IsNetworkIDAuthority, which you should do for a server or peer, I recommend also encoding the value returned by GetNetworkID() within Replica::SendConstruction into that bitstream and reading it here.  Then set that value in a call to SetNetworkID.  Dereplicate, SetScope, and SignalSerializeNeeded all rely on being able to call GET_OBJECT_FROM_ID which requires that SetNetworkID be called on that object.
-	/// \param[in] _constructionUserData Passed as the last parameter to \a constructionCB
-	/// \param[in] constructionCB The callback function pointer
-	/// \param[in] inBitStream The bitstream that was written to in Replica::SendConstruction
-	/// \param[in] timestamp If in Replica::SendConstruction you set sendTimestamp to true, this is the time the packet was sent.  Otherwise it is 0.
-	/// \param[in] networkID If the remote object had an NetworkID set by the time Replica::SendConstruction was called it is here.
-	/// \param[in] existingReplica If networkID is already in use, existingReplica is the pointer to that object.  If existingReplica is non-zero, you usually shouldn't create a new object.  This is here mostly for debugging or cheat detection.
-	/// \param[in] senderId Which SystemAddress sent this packet.
-	/// \return See ReplicaReturnResult
-	void SetReceiveConstructionCB(void *_constructionUserData, ReplicaReturnResult (* constructionCB)(RakNet::BitStream *inBitStream, RakNetTime timestamp, NetworkID networkID, Replica *existingReplica, SystemAddress senderId, ReplicaManager *caller, void *userData));
+	/// \note If you return true from NetworkIDManager::IsNetworkIDAuthority, which you should do for a server or peer, I recommend also encoding the value returned by GetNetworkID() within Replica::SendConstruction into that bitstream and reading it here.  Then set that value in a call to SetNetworkID.  Dereplicate, SetScope, and SignalSerializeNeeded all rely on being able to call GET_OBJECT_FROM_ID which requires that SetNetworkID be called on that object.
+	/// \param[in] ReceiveConstructionInterface An instance of a class that implements ReceiveConstructionInterface
+	void SetReceiveConstructionCB(ReceiveConstructionInterface *receiveConstructionInterface);
 
-	/// Optional callback
 	/// Set your callbacks to be called when, after connecting to another system, you get all objects that system is going to send to you when it is done with the first iteration through the object list.
-	/// \param[in] _sendDownloadCompleteUserData Passed as the last parameter to \a sendDownloadCompleteCB
-	/// \param[in] sendDownloadCompleteCB The callback function pointer or 0, to call when we send a download complete packet.  Used to append data to the download complete packet - you don't have to set this. The download complete message will still be sent.
-	/// \param[out] outBitStream Write whatever you want to this bitstream.  It will arrive in the receiveDownloadCompleteCB callback.
-	/// \param[in] currentTime The current time that would be returned by RakNet::GetTime().  That's a slow call I do already, so you can use the parameter instead of having to call it yourself.
-	/// \param[in] senderId Who we are sending to
-	/// \param[in] _receiveDownloadCompleteUserData Passed as the last parameter to \a sendDownloadCompleteCB
-	/// \param[in] receiveDownloadCompleteCB The callback function pointer or 0, to call when we get a download complete packet.  You do need to set this if you want to be notified of the download complete packet.
-    /// \param[in] inBitStream The bitstream that was written to in the sendDownloadCompleteCB callback
-	/// \return See ReplicaReturnResult
-	void SetDownloadCompleteCB(void *_sendDownloadCompleteUserData, ReplicaReturnResult (* sendDownloadCompleteCB)(RakNet::BitStream *outBitStream, RakNetTime currentTime, SystemAddress senderId, ReplicaManager *caller, void *userData),
-		void *_receiveDownloadCompleteUserData, ReplicaReturnResult (* receiveDownloadCompleteCB)(RakNet::BitStream *inBitStream, SystemAddress senderId, ReplicaManager *caller, void *userData));
+	/// Optional if you want to send and receive the download complete notification
+	/// \param[in] sendDownloadComplete A class that implements the SendDownloadCompleteInterface interface.
+	/// \param[in] receiveDownloadComplete A class that implements the ReceiveDownloadCompleteInterface interface.
+	/// \sa SendDownloadCompleteInterface , ReceiveDownloadCompleteInterface
+	void SetDownloadCompleteCB( SendDownloadCompleteInterface *sendDownloadComplete, ReceiveDownloadCompleteInterface *receiveDownloadComplete );
 
 	/// This channel will be used for all RakPeer::Send calls
 	/// \param[in] channel The channel to use for internal RakPeer::Send calls from this system.  Defaults to 0.
@@ -206,6 +247,13 @@ public:
 	/// Defaults to false
 	/// \param[in] autoSerialize True or false as needed.
 	void SetAutoSerializeInScope(bool autoSerialize);
+
+	/// Processes all pending commands and does sends as needed.
+	/// This is called automatically when RakPeerInterface::Receive is called.
+	/// Depending on where you call RakPeerInterface::Receive you may also wish to call this manually for better responsiveness.
+	/// For example, if you call RakPeerInterface::Receive at the start of each game tick, this means you would have to wait a render cycle, causing
+	/// \param[in] peer Pointer to a valid instance of RakPeerInterface used to perform sends
+	void Update(RakPeerInterface *peer);
 
 	/// Lets you enable calling any or all of the interface functions in an instance of Replica
 	/// This setting is the same for all participants for this object, so if you want per-participant permissions you will need to handle that inside your implementation
@@ -259,8 +307,13 @@ public:
 	/// \return A SystemAddress
 	SystemAddress GetParticipantAtIndex(unsigned index);
 
+	/// Returns if a participant has been added
+	/// \return If this participant has been added
+	bool HasParticipant(SystemAddress systemAddress);
+
 	/// Each participant has a per-remote object bitfield passed to the Replica::Serialize call.
 	/// This function can set or unset these flags for one or more participants at the same time.
+	/// Flags are NOT automatically cleared on serialize.  You must clear them when you want to do so.
 	/// \param[in] replica An object previously registered with Replicate
 	/// \param[in] systemAddress The participant to set the flags for
 	/// \param[in] broadcast True to apply to all participants.  If systemAddress!=UNASSIGNED_SYSTEM_ADDRESS then this means send to all but that participant
@@ -280,8 +333,10 @@ public:
 
 	enum
 	{
+		// Treat the object as on the remote system, and send a packet
 		REPLICA_EXPLICIT_CONSTRUCTION=1<<0,
-		REPLICA_IMPLICIT_CONSTRUCTION=1<<1, // Overridden by REPLICA_EXPLICIT_CONSTRUCTION.  IMPLICIT assumes the object exists on the remote system.
+		// Treat the object as on the remote system, but do not send a packet. Overridden by REPLICA_EXPLICIT_CONSTRUCTION.
+		REPLICA_IMPLICIT_CONSTRUCTION=1<<1,
 		REPLICA_SCOPE_TRUE=1<<2, // Mutually exclusive REPLICA_SCOPE_FALSE
 		REPLICA_SCOPE_FALSE=1<<3, // Mutually exclusive REPLICA_SCOPE_TRUE
 		REPLICA_SERIALIZE=1<<4,
@@ -301,6 +356,7 @@ public:
 		Replica *replica; // Pointer to an external object - not allocated here.
 		RakNetTime lastDeserializeTrue; //   For replicatedObjects it's the last time deserialize returned true.
 		unsigned char allowedInterfaces; // Replica interface flags
+		unsigned int referenceOrder; // The order in which we started tracking this object.  Used so autoconstruction can send objects in-order
 	};
 
 	struct RemoteObject
@@ -322,6 +378,7 @@ public:
 
 
 	static int RegisteredReplicaComp( Replica* const &key, const ReplicaManager::RegisteredReplica &data );
+	static int RegisteredReplicaRefOrderComp( const unsigned int &key, const ReplicaManager::RegisteredReplica &data );
 	static int RemoteObjectComp( Replica* const &key, const ReplicaManager::RemoteObject &data );
 	static int CommandStructComp( Replica* const &key, const ReplicaManager::CommandStruct &data );
 
@@ -341,7 +398,9 @@ public:
 		// Sorted list of Replica*, sorted by pointer, along with a command to perform on that pointer.
 		// Ordering is just for fast lookup.
 		// Nothing is allocated inside this list
-		DataStructures::OrderedList<Replica *, CommandStruct, ReplicaManager::CommandStructComp> commandList;
+		// DataStructures::OrderedList<Replica *, CommandStruct, ReplicaManager::CommandStructComp> commandList;
+		// June 4, 2007 - Don't sort commands in the command list.  The game replies on processing the commands in order
+		DataStructures::List<CommandStruct> commandList;
 
 		// Sorted list of Replica*, sorted by pointer, along with if that object is inScope or not for this system
 		// Only objects that exist on the remote system are in this list, so not all objects are necessarily in this list
@@ -358,9 +417,9 @@ protected:
 	void Clear(void);
 	// Processes a struct representing a received command
 	ReplicaReturnResult ProcessReceivedCommand(ParticipantStruct *participantStruct, ReceivedCommand *receivedCommand);
+	unsigned GetCommandListReplicaIndex(const DataStructures::List<ReplicaManager::CommandStruct> &commandList, Replica *replica, bool *objectExists) const;
 
 	// Plugin interface functions
-	void Update(RakPeerInterface *peer);
 	void OnAttach(RakPeerInterface *peer);
 	PluginReceiveResult OnReceive(RakPeerInterface *peer, Packet *packet);
 	void OnCloseConnection(RakPeerInterface *peer, SystemAddress systemAddress);
@@ -383,14 +442,11 @@ protected:
 	// Callback pointers.
 	
 	// Required callback to handle construction calls
-	ReplicaReturnResult (* _constructionCB)(RakNet::BitStream *inBitStream, RakNetTime timestamp, NetworkID networkID, Replica *existingReplica, SystemAddress senderId, ReplicaManager *caller, void *userData);
+	ReceiveConstructionInterface *_constructionCB;
 
 	// Optional callbacks to send and receive download complete.
-	ReplicaReturnResult (* _sendDownloadCompleteCB)(RakNet::BitStream *outBitStream, RakNetTime currentTime, SystemAddress senderId, ReplicaManager *caller, void *userData);
-	ReplicaReturnResult (* _receiveDownloadCompleteCB)(RakNet::BitStream *inBitStream, SystemAddress senderId, ReplicaManager *caller, void *userData);
-
-	// Userdata with the callbacks
-	void *receiveDownloadCompleteUserData, *sendDownloadCompleteUserData, *constructionUserData;
+	SendDownloadCompleteInterface *_sendDownloadCompleteCB;
+	ReceiveDownloadCompleteInterface *_receiveDownloadCompleteCB;
 
 	// Channel to do send calls on.  All calls are reliable ordered except for Replica::Serialize
 	unsigned char sendChannel;
@@ -401,8 +457,14 @@ protected:
 
 	bool defaultScope;
 	bool autoConstructToNewParticipants;
+	unsigned int nextReferenceIndex;
 
 	RakPeerInterface *rakPeer;
+
+#ifdef _DEBUG
+	// Check for and assert on recursive calls to update
+	bool inUpdate;
+#endif
 };
 
 

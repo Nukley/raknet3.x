@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -21,6 +21,7 @@
 class TransportInterface;
 class CommandParserInterface;
 
+#include "RakMemoryOverride.h"
 #include "DS_List.h"
 #include "RakNetTypes.h"
 #include "Export.h"
@@ -30,7 +31,7 @@ class CommandParserInterface;
 /// The TransportInterface will be used to send data between the server and the client.  The connecting client must support the
 /// protocol used by your derivation of TransportInterface . TelnetTransport and RakNetTransport are two such derivations .
 /// When a command is sent by a remote console, it will be processed by your implementations of CommandParserInterface
-class RAK_DLL_EXPORT ConsoleServer
+class RAK_DLL_EXPORT ConsoleServer : public RakNet::RakMemoryOverride
 {
 public:
 	ConsoleServer();

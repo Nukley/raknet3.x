@@ -7,8 +7,10 @@
 #ifndef __CHECKSUM_H
 #define __CHECKSUM_H
 
+#include "RakMemoryOverride.h"
+
 /// Generates and validates checksums
-class CheckSum
+class CheckSum : public RakNet::RakMemoryOverride
 {
 
 public:

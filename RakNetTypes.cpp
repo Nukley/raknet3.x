@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -18,18 +18,21 @@
 #include <string.h>
 #include <stdio.h>
 
-#ifdef _COMPATIBILITY_1
-#include "Compatibility1Includes.h"
+#ifdef _CONSOLE_1
+#include "Console1Includes.h"
 #elif defined(_WIN32)
 // IP_DONTFRAGMENT is different between winsock 1 and winsock 2.  Therefore, Winsock2.h must be linked againt Ws2_32.lib
 // winsock.h must be linked against WSock32.lib.  If these two are mixed up the flag won't work correctly
 #include <winsock2.h>
-#include <stdlib.h> // itoa
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #endif
+
+#include <string.h> // strncasecmp
+#include <stdlib.h> // itoa
+#include "SocketLayer.h"
 
 // Fast itoa from http://www.jb.man.ac.uk/~slowe/cpp/itoa.html for Linux since it seems like Linux doesn't support this function.
 // I modified it to remove the std dependencies.
@@ -113,33 +116,86 @@ bool SystemAddress::operator<( const SystemAddress& right ) const
 }
 char *SystemAddress::ToString(bool writePort) const
 {
-#ifdef _COMPATIBILITY_1
+#ifdef _CONSOLE_1
 	return "";
 #else
-	static char str[22];
+	static unsigned char strIndex=0;
+	static char str[8][22];
 	in_addr in;
 	in.s_addr = binaryAddress;
-	strcpy(str, inet_ntoa( in ));
+	strcpy(str[strIndex], inet_ntoa( in ));
 	if (writePort)
 	{
-		strcat(str, ":");
+		strcat(str[strIndex], ":");
 #if (defined(__GNUC__)  || defined(__GCCXML__))
-		my_itoa(port, str+strlen(str), 10);
+		my_itoa(port, str[strIndex]+strlen(str[strIndex]), 10);
 #else
-		_itoa(port, str+strlen(str), 10);
+		_itoa(port, str[strIndex]+strlen(str[strIndex]), 10);
 #endif
 	}
+
+	unsigned char lastStrIndex=strIndex;
+	strIndex++;
+	if (strIndex==8)
+		strIndex=0;
 	
-	return (char*) str;
+	return (char*) str[lastStrIndex];
 #endif
 }
+#ifdef _MSC_VER
+#pragma warning( disable : 4996 )  // The POSIX name for this item is deprecated. Instead, use the ISO C++ conformant name: _strnicmp. See online help for details.
+#endif
 void SystemAddress::SetBinaryAddress(const char *str)
 {
-#ifdef _COMPATIBILITY_1
-	binaryAddress=UNASSIGNED_SYSTEM_ADDRESS.binaryAddress;
-#else
-	binaryAddress=inet_addr(str);
+	if (str[0]<'0' || str[0]>'2')
+	{
+#if !defined(_CONSOLE_1)
+		const char *ip = ( char* ) SocketLayer::Instance()->DomainNameToIP( str );
 #endif
+		if (ip)
+		{
+			binaryAddress=inet_addr(ip);
+		}		
+	}
+	else
+	{
+		//#ifdef _CONSOLE_1
+		//	binaryAddress=UNASSIGNED_SYSTEM_ADDRESS.binaryAddress;
+		//#else
+		// Split the string into the first part, and the : part
+		int index, portIndex;
+		char IPPart[22];
+		char portPart[10];
+		// Only write the valid parts, don't change existing if invalid
+		//	binaryAddress=UNASSIGNED_SYSTEM_ADDRESS.binaryAddress;
+		//	port=UNASSIGNED_SYSTEM_ADDRESS.port;
+		for (index=0; str[index] && str[index]!=':' && index<22; index++)
+		{
+			IPPart[index]=str[index];
+		}
+		IPPart[index]=0;
+		portPart[0]=0;
+		if (str[index] && str[index+1])
+		{
+			index++;
+			for (portIndex=0; portIndex<10 && str[index] && index < 22+10; index++, portIndex++)
+				portPart[portIndex]=str[index];
+			portPart[portIndex]=0;
+		}
+
+#ifdef _WIN32
+		if (strnicmp(str,"localhost", 9)==0)
+#else
+		if (strncasecmp(str,"localhost", 9)==0)
+#endif
+			binaryAddress=inet_addr("127.0.0.1");
+		else if (IPPart[0])
+			binaryAddress=inet_addr(IPPart);
+		if (portPart[0])
+			port=(unsigned short) atoi(portPart);
+		//#endif
+	}
+
 }
 
 NetworkID& NetworkID::operator = ( const NetworkID& input )

@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -20,16 +20,14 @@
 //#include <Shlwapi.h>
 #include <process.h>
 #else
-#ifdef _COMPATIBILITY_2
-#include "Compatibility2Includes.h"
 #include <sys/time.h>
-#endif
 #define closesocket close
 #include <unistd.h>
 #include <pthread.h>
 #endif
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
 
 #ifdef _WIN32
 unsigned __stdcall UpdateTCPInterfaceLoop( LPVOID arguments );
@@ -59,7 +57,7 @@ TCPInterface::TCPInterface()
 	WSADATA winsockInfo;
 	if ( WSAStartup( MAKEWORD( 2, 2 ), &winsockInfo ) != 0 )
 	{
-#if defined(_WIN32) && !defined(_COMPATIBILITY_1) && defined(_DEBUG)
+#if defined(_WIN32) && !defined(_CONSOLE_1) && defined(_DEBUG)
 		DWORD dwIOError = GetLastError();
 		LPVOID messageBuffer;
 		FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -167,7 +165,7 @@ SystemAddress TCPInterface::Connect(const char* host, unsigned short remotePort)
 {
 	sockaddr_in serverAddress;
 
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 	struct hostent * server;
 	server = gethostbyname(host);
 	if (server == NULL)
@@ -183,7 +181,7 @@ SystemAddress TCPInterface::Connect(const char* host, unsigned short remotePort)
 	serverAddress.sin_port = htons( remotePort );
 	
 
-#if !defined(_COMPATIBILITY_1)
+#if !defined(_CONSOLE_1)
 	memcpy((char *)&serverAddress.sin_addr.s_addr, (char *)server->h_addr, server->h_length);
 #else
 	serverAddress.sin_addr.s_addr = inet_addr( host );
@@ -205,7 +203,7 @@ SystemAddress TCPInterface::Connect(const char* host, unsigned short remotePort)
 	RemoteClient **temp = newRemoteClients.WriteLock();
 	*temp=remoteClient;
 	newRemoteClients.WriteUnlock();
-	while (waitForClient);
+	while (waitForClient)
 	{
 		RakSleep(30);
 	}
@@ -221,7 +219,7 @@ void TCPInterface::Send( const char *data, unsigned length, SystemAddress system
 		return;
 	Packet *p=outgoingMessages.WriteLock();
 	p->length=length;
-	p->data = new unsigned char [p->length];
+	p->data = (unsigned char*) rakMalloc( p->length );
 	memcpy(p->data, data, p->length);
 	p->systemAddress=systemAddress;
 	outgoingMessages.WriteUnlock();
@@ -245,7 +243,7 @@ void TCPInterface::CloseConnection( SystemAddress systemAddress )
 void TCPInterface::DeallocatePacket( Packet *packet )
 {
 	assert(incomingMessages.CheckReadUnlockOrder(packet));
-	delete [] packet->data;
+	rakFree(packet->data);
 	incomingMessages.ReadUnlock();
 }
 SystemAddress TCPInterface::HasNewConnection(void)
@@ -332,6 +330,8 @@ void* UpdateTCPInterfaceLoop( void* arguments )
 					if (sts->remoteClients[i]->systemAddress==p->systemAddress )
 						send(sts->remoteClients[i]->socket, (const char*)p->data, p->length, 0);
 			}
+
+			rakFree(p->data);
 			sts->outgoingMessages.ReadUnlock();
 			p=sts->outgoingMessages.ReadLock();
 		}
@@ -372,6 +372,8 @@ void* UpdateTCPInterfaceLoop( void* arguments )
 			sts->requestedCloseConnections.ReadUnlock();
 		}
 
+		SOCKET largestDescriptor=0; // see select()'s first parameter's documentation under linux
+
 		// Reset readFD and exceptionFD since select seems to clear it
 		FD_ZERO(&readFD);
 		FD_ZERO(&exceptionFD);
@@ -382,15 +384,33 @@ void* UpdateTCPInterfaceLoop( void* arguments )
 		{
 			FD_SET(sts->listenSocket, &readFD);
 			FD_SET(sts->listenSocket, &exceptionFD);
+			largestDescriptor = sts->listenSocket; // @see largestDescriptor def
 		}
 		
 		for (i=0; i < sts->remoteClients.Size(); i++)
 		{
 			FD_SET(sts->remoteClients[i]->socket, &readFD);
 			FD_SET(sts->remoteClients[i]->socket, &exceptionFD);
+			if(sts->remoteClients[i]->socket > largestDescriptor) // @see largestDescriptorDef
+				largestDescriptor = sts->remoteClients[i]->socket;
 		}
 
-		selectResult=select(0, &readFD, 0, &exceptionFD, &tv);
+
+		// Linux' select() implementation changes the timeout
+		tv.tv_sec=0;
+		tv.tv_usec=25000;
+
+#ifdef _MSC_VER
+#pragma warning( disable : 4244 ) // warning C4127: conditional expression is constant
+#endif
+#if defined(_CONSOLE_2)
+		selectResult=socketselect(largestDescriptor+1, &readFD, 0, &exceptionFD, &tv);
+#else
+		selectResult=(int) select(largestDescriptor+1, &readFD, 0, &exceptionFD, &tv);		
+#endif
+		//selectResult=select(largestDescriptor+1, &readFD, 0, &exceptionFD, &tv);
+
+		//selectResult=select(0, &readFD, 0, &exceptionFD, &tv);
 
 		if (selectResult > 0)
 		{
@@ -463,7 +483,7 @@ void* UpdateTCPInterfaceLoop( void* arguments )
 							if (len>0)
 							{
 								p=sts->incomingMessages.WriteLock();
-								p->data = new unsigned char[len+1];
+								p->data = (unsigned char*) rakMalloc( len+1 );
 								memcpy(p->data, data, len);
 								p->data[len]=0; // Null terminate this so we can print it out as regular strings.  This is different from RakNet which does not do this.
 								p->length=len;

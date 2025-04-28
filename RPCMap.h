@@ -10,7 +10,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -20,6 +20,7 @@
 #ifndef __RPC_MAP
 #define __RPC_MAP
 
+#include "RakMemoryOverride.h"
 #include "RPCNode.h"
 #include "DS_List.h"
 #include "RakNetTypes.h"
@@ -28,18 +29,18 @@
 /// \ingroup RAKNET_RPC 
 /// \internal
 /// \brief A container class for a list of RPCNodes
-struct RAK_DLL_EXPORT RPCMap
+struct RAK_DLL_EXPORT RPCMap : public RakNet::RakMemoryOverride
 {
 public:
 	RPCMap();
 	~RPCMap();
 	void Clear(void);
     RPCNode *GetNodeFromIndex(RPCIndex index);
-	RPCNode *GetNodeFromFunctionName(char *uniqueIdentifier);
-	RPCIndex GetIndexFromFunctionName(char *uniqueIdentifier);
-	void AddIdentifierWithFunction(char *uniqueIdentifier, void *functionPointer, bool isPointerToMember);
-	void AddIdentifierAtIndex(char *uniqueIdentifier, RPCIndex insertionIndex);
-	void RemoveNode(char *uniqueIdentifier);
+	RPCNode *GetNodeFromFunctionName(const char *uniqueIdentifier);
+	RPCIndex GetIndexFromFunctionName(const char *uniqueIdentifier);
+	void AddIdentifierWithFunction(const char *uniqueIdentifier, void *functionPointer, bool isPointerToMember);
+	void AddIdentifierAtIndex(const char *uniqueIdentifier, RPCIndex insertionIndex);
+	void RemoveNode(const char *uniqueIdentifier);
 protected:
 	DataStructures::List<RPCNode *> rpcSet;
 };

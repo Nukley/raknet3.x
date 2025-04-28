@@ -7,7 +7,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -17,9 +17,12 @@
 #include "StringCompressor.h"
 #include "DS_HuffmanEncodingTree.h"
 #include "BitStream.h"
+#include "RakString.h"
 #include <assert.h>
 #include <string.h>
 #include <memory.h>
+
+using namespace RakNet;
 
 StringCompressor* StringCompressor::instance=0;
 int StringCompressor::referenceCount=0;
@@ -317,6 +320,7 @@ StringCompressor::StringCompressor()
 	// Make a default tree immediately, since this is used for RPC possibly from multiple threads at the same time
 	HuffmanEncodingTree *huffmanEncodingTree = new HuffmanEncodingTree;
 	huffmanEncodingTree->GenerateFromFrequencyTable( englishCharacterFrequencies );
+
 	huffmanEncodingTrees.Set(0, huffmanEncodingTree);
 }
 void StringCompressor::GenerateTreeFromStrings( unsigned char *input, unsigned inputLength, int languageID )
@@ -362,13 +366,13 @@ void StringCompressor::EncodeString( const char *input, int maxCharsToWrite, Rak
 
 	if ( input == 0 )
 	{
-		output->WriteCompressed( (unsigned short) 0 );
+		output->WriteCompressed( (unsigned int) 0 );
 		return ;
 	}
 
 	RakNet::BitStream encodedBitStream;
 
-	unsigned short stringBitLength;
+	unsigned int stringBitLength;
 
 	int charsToWrite;
 
@@ -379,7 +383,7 @@ void StringCompressor::EncodeString( const char *input, int maxCharsToWrite, Rak
 
 	huffmanEncodingTree->EncodeArray( ( unsigned char* ) input, charsToWrite, &encodedBitStream );
 
-	stringBitLength = ( unsigned short ) encodedBitStream.GetNumberOfBitsUsed();
+	stringBitLength = encodedBitStream.GetNumberOfBitsUsed();
 
 	output->WriteCompressed( stringBitLength );
 
@@ -391,9 +395,11 @@ bool StringCompressor::DecodeString( char *output, int maxCharsToWrite, RakNet::
 	HuffmanEncodingTree *huffmanEncodingTree;
 	if (huffmanEncodingTrees.Has(languageID)==false)
 		return false;
+	if (maxCharsToWrite<=0)
+		return false;
 	huffmanEncodingTree=huffmanEncodingTrees.Get(languageID);
 
-	unsigned short stringBitLength;
+	unsigned int stringBitLength;
 	int bytesInStream;
 
 	output[ 0 ] = 0;
@@ -401,7 +407,7 @@ bool StringCompressor::DecodeString( char *output, int maxCharsToWrite, RakNet::
 	if ( input->ReadCompressed( stringBitLength ) == false )
 		return false;
 
-	if ( input->GetNumberOfUnreadBits() < stringBitLength )
+	if ( (unsigned) input->GetNumberOfUnreadBits() < stringBitLength )
 		return false;
 
 	bytesInStream = huffmanEncodingTree->DecodeArray( input, stringBitLength, maxCharsToWrite, ( unsigned char* ) output );
@@ -412,4 +418,86 @@ bool StringCompressor::DecodeString( char *output, int maxCharsToWrite, RakNet::
 		output[ maxCharsToWrite - 1 ] = 0;
 
 	return true;
+}
+#ifdef _CSTRING_COMPRESSOR
+void StringCompressor::EncodeString( const CString &input, int maxCharsToWrite, RakNet::BitStream *output )
+{
+	LPTSTR p = input;
+	EncodeString(p, maxCharsToWrite*sizeof(TCHAR), output, languageID);
+}
+bool StringCompressor::DecodeString( CString &output, int maxCharsToWrite, RakNet::BitStream *input, int languageID )
+{
+	LPSTR p = output.GetBuffer(maxCharsToWrite*sizeof(TCHAR));
+	DecodeString(p,maxCharsToWrite*sizeof(TCHAR), input, languageID);
+	output.ReleaseBuffer(0)
+
+}
+#endif
+#ifdef _STD_STRING_COMPRESSOR
+void StringCompressor::EncodeString( const std::string &input, int maxCharsToWrite, RakNet::BitStream *output, int languageID )
+{
+	EncodeString(input.c_str(), maxCharsToWrite, output, languageID);
+}
+bool StringCompressor::DecodeString( std::string *output, int maxCharsToWrite, RakNet::BitStream *input, int languageID )
+{
+	if (maxCharsToWrite <= 0)
+	{
+		output->clear();
+		return true;
+	}
+
+	char *destinationBlock;
+	bool out;
+
+#ifndef _CONSOLE_1
+	if (maxCharsToWrite < MAX_ALLOCA_STACK_ALLOCATION)
+	{
+		destinationBlock = (char*) alloca(maxCharsToWrite);
+		out=DecodeString(destinationBlock, maxCharsToWrite, input, languageID);
+		*output=destinationBlock;
+	}
+	else
+#endif
+	{
+		destinationBlock = (char*) rakMalloc( maxCharsToWrite );
+		out=DecodeString(destinationBlock, maxCharsToWrite, input, languageID);
+		*output=destinationBlock;
+		rakFree(destinationBlock);
+	}
+
+	return out;
+}
+#endif
+void StringCompressor::EncodeString( const RakString *input, int maxCharsToWrite, RakNet::BitStream *output, int languageID )
+{
+	EncodeString(input->C_String(), maxCharsToWrite, output, languageID);
+}
+bool StringCompressor::DecodeString( RakString *output, int maxCharsToWrite, RakNet::BitStream *input, int languageID )
+{
+	if (maxCharsToWrite <= 0)
+	{
+		output->Clear();
+		return true;
+	}
+
+	char *destinationBlock;
+	bool out;
+
+#ifndef _CONSOLE_1
+	if (maxCharsToWrite < MAX_ALLOCA_STACK_ALLOCATION)
+	{
+		destinationBlock = (char*) alloca(maxCharsToWrite);
+		out=DecodeString(destinationBlock, maxCharsToWrite, input, languageID);
+		*output=destinationBlock;
+	}
+	else
+#endif
+	{
+		destinationBlock = (char*) rakMalloc( maxCharsToWrite );
+		out=DecodeString(destinationBlock, maxCharsToWrite, input, languageID);
+		*output=destinationBlock;
+		rakFree(destinationBlock);
+	}
+
+	return out;
 }

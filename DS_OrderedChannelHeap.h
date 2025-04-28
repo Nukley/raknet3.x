@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -30,7 +30,7 @@
 namespace DataStructures
 {
 	template <class channel_key_type, class heap_data_type, int (*channel_key_comparison_func)(const channel_key_type&, const channel_key_type&)=defaultMapKeyComparison<channel_key_type> >
-	class RAK_DLL_EXPORT OrderedChannelHeap
+	class RAK_DLL_EXPORT OrderedChannelHeap : public RakNet::RakMemoryOverride
 	{
 	public:
 		static void IMPLEMENT_DEFAULT_COMPARISON(void) {DataStructures::defaultMapKeyComparison<channel_key_type>(channel_key_type(),channel_key_type());}
@@ -167,7 +167,7 @@ namespace DataStructures
 			for (i=0; i < startingIndex; i++)
 				if (channel_key_comparison_func(heap[i].channel,heap[startingIndex].channel)==0)
 					indiceCount++;
-			queueAndWeight->randResultQueue.Del(indiceCount);
+			queueAndWeight->randResultQueue.RemoveAtIndex(indiceCount);
 		}
 		else
 		{

@@ -18,11 +18,12 @@ RakNetCommandParser::RakNetCommandParser()
 	RegisterCommand(0,"DisableSecurity","( void );");
 	RegisterCommand(1,"SetMaximumIncomingConnections","( unsigned short numberAllowed );");
 	RegisterCommand(0,"GetMaximumIncomingConnections","( void ) const;");
-	RegisterCommand(4,"Connect","( const char* host, unsigned short remotePort, char* passwordData, int passwordDataLength );");
+	RegisterCommand(4,"Connect","( const char* host, unsigned short remotePort, const char *passwordData, int passwordDataLength );");
 	RegisterCommand(2,"Disconnect","( unsigned int blockDuration, unsigned char orderingChannel=0 );");
 	RegisterCommand(0,"IsActive","( void ) const;");
 	RegisterCommand(0,"GetConnectionList","() const;");
 	RegisterCommand(4,"CloseConnection","( const SystemAddress target, bool sendDisconnectionNotification, unsigned char orderingChannel=0 );");
+	RegisterCommand(2,"IsConnected","( );");
 	RegisterCommand(2,"GetIndexFromSystemAddress","( const SystemAddress systemAddress );");
 	RegisterCommand(1,"GetSystemAddressFromIndex","( int index );");
 	RegisterCommand(2,"AddToBanList","( const char *IP, RakNetTime milliseconds=0 );");
@@ -128,6 +129,10 @@ bool RakNetCommandParser::OnCommand(const char *command, unsigned numParameters,
 		peer->CloseConnection(IntegersToSystemAddress(atoi(parameterList[0]), atoi(parameterList[1])),atoi(parameterList[2])!=0,(unsigned char)atoi(parameterList[3]));
 		ReturnResult(command, transport, systemAddress);
 	}
+	else if (strcmp(command, "IsConnected")==0)
+	{
+		ReturnResult(peer->IsConnected(IntegersToSystemAddress(atoi(parameterList[0]), atoi(parameterList[1]))), command, transport, systemAddress);
+	}
 	else if (strcmp(command, "GetIndexFromSystemAddress")==0)
 	{
 		ReturnResult(peer->GetIndexFromSystemAddress(IntegersToSystemAddress(atoi(parameterList[0]), atoi(parameterList[1]))), command, transport, systemAddress);
@@ -206,7 +211,7 @@ bool RakNetCommandParser::OnCommand(const char *command, unsigned numParameters,
 	}
 	else if (strcmp(command, "GetMTUSize")==0)
 	{
-		ReturnResult(peer->GetMTUSize(), command, transport, systemAddress);
+		ReturnResult(peer->GetMTUSize(UNASSIGNED_SYSTEM_ADDRESS), command, transport, systemAddress);
 	}
 	else if (strcmp(command, "GetNumberOfAddresses")==0)
 	{

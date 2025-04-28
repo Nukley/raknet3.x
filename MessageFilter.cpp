@@ -63,7 +63,7 @@ void MessageFilter::SetAllowRPC(bool allow, const char *functionName, int filter
 	unsigned index = filterSet->allowedRPCs.GetIndexFromKey((char *const) functionName, &objectExists);
 	if (objectExists==false)
 	{
-		char *str = new char [strlen(functionName)+1];
+		char *str = (char*) rakMalloc( strlen(functionName)+1 );
 		strcpy(str, functionName);
 		filterSet->allowedRPCs.InsertAtIndex(str, index);
 	}
@@ -118,7 +118,7 @@ void MessageFilter::SetSystemFilterSet(SystemAddress systemAddress, int filterSe
 		filteredSystem.filter = GetFilterSetByID(filterSetID);
 		filteredSystem.systemAddress=systemAddress;
 		filteredSystem.timeEnteredThisSet=RakNet::GetTime();
-		systemList.Insert(systemAddress, filteredSystem);
+		systemList.Insert(systemAddress, filteredSystem, true);
 	}
 	else
 	{
@@ -211,7 +211,7 @@ void MessageFilter::DeallocateFilterSet(FilterSet* filterSet)
 {
 	unsigned i;
 	for (i=0; i < filterSet->allowedRPCs.Size(); i++)
-		delete [] filterSet->allowedRPCs[i];
+		rakFree(filterSet->allowedRPCs[i]);
 	delete filterSet;
 }
 FilterSet* MessageFilter::GetFilterSetByID(int filterSetID)
@@ -231,11 +231,12 @@ FilterSet* MessageFilter::GetFilterSetByID(int filterSetID)
 		newFilterSet->banOnDisallowedMessage=false;
 		newFilterSet->disallowedMessageBanTimeMS=0;
 		newFilterSet->timeExceedBanTimeMS=0;
+		newFilterSet->maxMemberTimeMS=0;
 		newFilterSet->filterSetID=filterSetID;
 		newFilterSet->invalidMessageCallback=0;
 		newFilterSet->timeoutCallback=0;
 		newFilterSet->timeoutUserData=0;
-		filterList.Insert(filterSetID, newFilterSet);
+		filterList.Insert(filterSetID, newFilterSet, true);
 		return newFilterSet;
 	}
 }
@@ -281,9 +282,9 @@ void MessageFilter::Update(RakPeerInterface *peer)
 			systemList[index].filter->maxMemberTimeMS>0 &&
 			time-systemList[index].timeEnteredThisSet >= systemList[index].filter->maxMemberTimeMS)
 		{
-
 			if (systemList[index].filter->timeoutCallback)
 				systemList[index].filter->timeoutCallback(peer, systemList[index].systemAddress, systemList[index].filter->filterSetID, systemList[index].filter->timeoutUserData);
+
 			if (systemList[index].filter->banOnFilterTimeExceed)
 				peer->AddToBanList(systemList[index].systemAddress.ToString(false), systemList[index].filter->timeExceedBanTimeMS);
 			peer->CloseConnection(systemList[index].systemAddress, true, 0);
@@ -319,6 +320,7 @@ void MessageFilter::Update(RakPeerInterface *peer)
 	case ID_INVALID_PASSWORD:
 	case ID_MODIFIED_PACKET:
 	case ID_PONG:
+	case ID_ALREADY_CONNECTED:
 	case ID_ADVERTISE_SYSTEM:
 	case ID_REMOTE_DISCONNECTION_NOTIFICATION:
 	case ID_REMOTE_CONNECTION_LOST:

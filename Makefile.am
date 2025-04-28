@@ -1,106 +1,183 @@
-# Makefile.am 
-# RakNet configure script 
-SUBDIRS=Autopatcher RakVoice .
+lib_LTLIBRARIES 		= libraknet.la
+libraknet_la_LDFLAGS		= -version-info 0:0:0 $(PTHREAD_LIBS) $(PTHREAD_CFLAGS)
+libraknet_la_CPPFLAGS		= $(PTHREAD_CFLAGS)
+libraknet_la_SOURCES		= 	AsynchronousFileIO.cpp\
+AutoRPC.cpp\
+BitStream.cpp\
+CheckSum.cpp\
+CommandParserInterface.cpp\
+ConnectionGraph.cpp\
+ConsoleServer.cpp\
+DataBlockEncryptor.cpp\
+DataCompressor.cpp\
+DirectoryDeltaTransfer.cpp\
+DS_BytePool.cpp\
+DS_ByteQueue.cpp\
+DS_HuffmanEncodingTree.cpp\
+DS_Table.cpp\
+EmailSender.cpp\
+EncodeClassName.cpp\
+EpochTimeToString.cpp\
+ExtendedOverlappedPool.cpp\
+FileList.cpp\
+FileListTransfer.cpp\
+FileOperations.cpp\
+FormatString.cpp\
+FullyConnectedMesh.cpp\
+FunctionThread.cpp\
+GetTime.cpp\
+GridSectorizer.cpp\
+LightweightDatabaseClient.cpp\
+LightweightDatabaseCommon.cpp\
+LightweightDatabaseServer.cpp\
+LinuxStrings.cpp\
+LogCommandParser.cpp\
+MessageFilter.cpp\
+NatPunchthrough.cpp\
+NetworkIDManager.cpp\
+NetworkIDObject.cpp\
+PacketConsoleLogger.cpp\
+PacketFileLogger.cpp\
+PacketLogger.cpp\
+PluginInterface.cpp\
+RakMemoryOverride.cpp\
+RakNetCommandParser.cpp\
+RakNetStatistics.cpp\
+RakNetTransport.cpp\
+RakNetTypes.cpp\
+RakNetworkFactory.cpp\
+RakPeer.cpp\
+RakSleep.cpp\
+RakString.cpp\
+Rand.cpp\
+ReadyEvent.cpp\
+ReliabilityLayer.cpp\
+ReplicaManager.cpp\
+ReplicaManager2.cpp\
+rijndael.cpp\
+Router.cpp\
+RPCMap.cpp\
+SHA1.cpp\
+SimpleMutex.cpp\
+SocketLayer.cpp\
+StringCompressor.cpp\
+StringTable.cpp\
+SystemAddressList.cpp\
+TableSerializer.cpp\
+TCPInterface.cpp\
+TelnetTransport.cpp\
+ThreadsafePacketLogger.cpp\
+_FindFirst.cpp
 
-lib_LTLIBRARIES=libRakNet.la
+pkginclude_HEADERS =	AsynchronousFileIO.h\
+AutoRPC.h\
+AutopatcherPatchContext.h\
+AutopatcherRepositoryInterface.h\
+BigTypes.h\
+BitStream.h\
+CheckSum.h\
+ClientContextStruct.h\
+CommandParserInterface.h\
+ConnectionGraph.h\
+ConsoleServer.h\
+DataBlockEncryptor.h\
+DataCompressor.h\
+DirectoryDeltaTransfer.h\
+DS_BinarySearchTree.h\
+DS_BPlusTree.h\
+DS_BytePool.h\
+DS_ByteQueue.h\
+DS_Heap.h\
+DS_HuffmanEncodingTree.h\
+DS_HuffmanEncodingTreeFactory.h\
+DS_HuffmanEncodingTreeNode.h\
+DS_LinkedList.h\
+DS_List.h\
+DS_Map.h\
+DS_MemoryPool.h\
+DS_OrderedChannelHeap.h\
+DS_OrderedList.h\
+DS_Queue.h\
+DS_QueueLinkedList.h\
+DS_RangeList.h\
+DS_Table.h\
+DS_Tree.h\
+DS_WeightedGraph.h\
+EmailSender.h\
+EpochTimeToString.h\
+Export.h\
+ExtendedOverlappedPool.h\
+FileList.h\
+FileListTransfer.h\
+FileListTransferCBInterface.h\
+FileOperations.h\
+FormatString.h\
+FullyConnectedMesh.h\
+FunctionThread.h\
+GetTime.h\
+GridSectorizer.h\
+InternalPacket.h\
+LightweightDatabaseClient.h\
+LightweightDatabaseCommon.h\
+LightweightDatabaseServer.h\
+LinuxStrings.h\
+LogCommandParser.h\
+MessageFilter.h\
+MessageIdentifiers.h\
+MTUSize.h\
+NatPunchthrough.h\
+NetworkIDManager.h\
+NetworkIDObject.h\
+PacketConsoleLogger.h\
+PacketFileLogger.h\
+PacketLogger.h\
+PacketPool.h\
+PacketPriority.h\
+PluginInterface.h\
+RakAssert.h\
+RakMemoryOverride.h\
+RakNetCommandParser.h\
+RakNetDefines.h\
+RakNetStatistics.h\
+RakNetTransport.h\
+RakNetTypes.h\
+RakNetVersion.h\
+RakNetworkFactory.h\
+RakPeer.h\
+RakPeerInterface.h\
+RakSleep.h\
+RakString.h\
+Rand.h\
+ReadyEvent.h\
+RefCountedObj.h\
+ReliabilityLayer.h\
+Replica.h\
+ReplicaEnums.h\
+ReplicaManager.h\
+ReplicaManager2.h\
+Rijndael-Boxes.h\
+Rijndael.h\
+Router.h\
+RouterInterface.h\
+RPCMap.h\
+RPCNode.h\
+RSACrypt.h\
+SHA1.h\
+SimpleMutex.h\
+SimpleTCPServer.h\
+SingleProducerConsumer.h\
+SocketLayer.h\
+StringCompressor.h\
+StringTable.h\
+SystemAddressList.h\
+TableSerializer.h\
+TCPInterface.h\
+TelnetTransport.h\
+ThreadPool.h\
+ThreadsafePacketLogger.h\
+TransportInterface.h\
+Types.h\
+_FindFirst.h
 
+EXTRA_DIST = RakNet.vcproj RakNet3.0.vcproj RakNet3.0.vcproj.user RakNet_vc8.vcproj
 
-#RakNet headers 
-libRakNet_ladir=$(includedir)/RakNet
-libRakNet_la_HEADERS=\
-	AES128.h\
-	ArrayList.h\
-	AsynchronousFileIO.h\
-	BigTypes.h\
-	BinarySearchTree.h\
-	BitStream.h\
-	CheckSum.h\
-	ClientContextStruct.h\
-	DataBlockEncryptor.h\
-	DistributedNetworkObject.h\
-	DistributedNetworkObjectHeader.h\
-	DistributedNetworkObjectManager.h\
-	DistributedNetworkObjectStub.h\
-	EncodeClassName.h\
-	ExtendedOverlappedPool.h\
-	GetTime.h\
-	HuffmanEncodingTree.h\
-	HuffmanEncodingTreeFactory.h\
-	HuffmanEncodingTreeNode.h\
-	InternalPacket.h\
-	InternalPacketPool.h\
-	LinkedList.h\
-	MTUSize.h\
-	Multiplayer.h\
-	NetworkObject.h\
-	NetworkTypes.h\
-	PacketEnumerations.h\
-	PacketPool.h\
-	PacketPriority.h\
-	Queue.h\
-	QueueLinkedList.h\
-	RPCNode.h\
-	RSACrypt.h\
-	RakClient.h\
-	RakClientInterface.h\
-	RakNetStatistics.h\
-	RakNetworkFactory.h\
-	RakPeer.h\
-	RakPeerInterface.h\
-	RakServer.h\
-	RakServerInterface.h\
-	Rand.h\
-	ReliabilityLayer.h\
-	SHA1.h\
-	SimpleMutex.h\
-	SocketLayer.h\
-	StringCompressor.h\
-	Types.h
-	
-#RakNet sources files 
-libRakNet_la_SOURCES=\
-	AES128.cpp\
-	AsynchronousFileIO.cpp\
-	BitStream.cpp\
-	CheckSum.cpp\
-	DataBlockEncryptor.cpp\
-	DistributedNetworkObject.cpp\
-	DistributedNetworkObjectManager.cpp\
-	DistributedNetworkObjectStub.cpp\
-	EncodeClassName.cpp\
-	ExtendedOverlappedPool.cpp\
-	GetTime.cpp\
-	HuffmanEncodingTree.cpp\
-	HuffmanEncodingTreeFactory.cpp\
-	InternalPacketPool.cpp\
-	NetworkObject.cpp\
-	NetworkTypes.cpp\
-	PacketPool.cpp\
-	RPCNode.cpp\
-	RakClient.cpp\
-	RakNetStatistics.cpp\
-	RakNetworkFactory.cpp\
-	RakPeer.cpp\
-	RakServer.cpp\
-	Rand.cpp\
-	ReliabilityLayer.cpp\
-	SHA1.cpp\
-	SimpleMutex.cpp\
-	SocketLayer.cpp\
-	StringCompressor.cpp
-
-if BUILD_RAKVOICE 
-
-if   BUILD_MONOLITHIC
-libRakNet_la_LIBADD=\
-	Autopatcher/libRakNet_autopatcher.la\
-	RakVoice/libRakNet_voice.la
-else 
-libRakNet_la_LIBADD=\
-	Autopatcher/libRakNet_autopatcher.la
-endif 
-
-else 
-libRakNet_la_LIBADD=\
-	Autopatcher/libRakNet_autopatcher.la
-endif 

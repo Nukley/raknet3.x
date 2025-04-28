@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -38,8 +38,9 @@ namespace DataStructures
 		void Push( const queue_type& input );
 		void PushAtHead( const queue_type& input, unsigned index=0 );
 		queue_type& operator[] ( unsigned int position ) const; // Not a normal thing you do with a queue but can be used for efficiency
-		void Del( unsigned int position ); // Not a normal thing you do with a queue but can be used for efficiency
+		void RemoveAtIndex( unsigned int position ); // Not a normal thing you do with a queue but can be used for efficiency
 		inline queue_type Peek( void ) const;
+		inline queue_type PeekTail( void ) const;
 		inline queue_type Pop( void );
 		inline unsigned int Size( void ) const;
 		inline bool IsEmpty(void) const;
@@ -114,55 +115,43 @@ namespace DataStructures
 	template <class queue_type>
 		void Queue<queue_type>::PushAtHead( const queue_type& input, unsigned index )
 	{
-		if ( allocation_size == 0 )
+		assert(index <= Size());
+
+		// Just force a reallocation, will be overwritten
+		Push(input);
+
+		if (Size()==1)
+			return;
+
+		unsigned writeIndex, readIndex, trueWriteIndex, trueReadIndex;
+		writeIndex=Size()-1;
+		readIndex=writeIndex-1;
+		while (readIndex >= index)
 		{
-			array = new queue_type[ 16 ];
-			head = 0;
-			tail = 1;
-			array[ 0 ] = input;
-			allocation_size = 16;
-			return ;
+			if ( head + writeIndex >= allocation_size )
+				trueWriteIndex = head + writeIndex - allocation_size;
+			else
+				trueWriteIndex = head + writeIndex;
+
+			if ( head + readIndex >= allocation_size )
+				trueReadIndex = head + readIndex - allocation_size;
+			else
+				trueReadIndex = head + readIndex;
+
+			array[trueWriteIndex]=array[trueReadIndex];
+
+			if (readIndex==0)
+				break;
+			writeIndex--;
+			readIndex--;
 		}
 
-		if ( head == 0 )
-			head = allocation_size - 1;
+		if ( head + index >= allocation_size )
+			trueWriteIndex = head + index - allocation_size;
 		else
-			--head;
+			trueWriteIndex = head + index;
 
-		unsigned count=0;
-		while (count < index)
-		{
-			array[head+count]=array[head+count+1];
-			count++;
-		}
-		array[ head+count ] = input;
-
-		if ( tail == head )
-		{
-			//  unsigned int index=tail;
-
-			// Need to allocate more memory.
-			queue_type * new_array;
-			new_array = new queue_type[ allocation_size * 2 ];
-#ifdef _DEBUG
-
-			assert( new_array );
-#endif
-
-			for ( unsigned int counter = 0; counter < allocation_size; ++counter )
-				new_array[ counter ] = array[ ( head + counter ) % ( allocation_size ) ];
-
-			head = 0;
-
-			tail = allocation_size;
-
-			allocation_size *= 2;
-
-			// Delete the old array and move the pointer to the new array
-			delete [] array;
-
-			array = new_array;
-		}
+		array[trueWriteIndex]=input;
 	}
 
 
@@ -176,6 +165,19 @@ namespace DataStructures
 
 		return ( queue_type ) array[ head ];
 	}
+
+	template <class queue_type>
+		inline queue_type Queue<queue_type>::PeekTail( void ) const
+		{
+#ifdef _DEBUG
+			assert( head != tail );
+			assert( allocation_size > 0 && Size() >= 0 );
+#endif
+			if (tail!=0)
+				return ( queue_type ) array[ tail-1 ];
+			else
+				return ( queue_type ) array[ allocation_size-1 ];
+		}
 
 	template <class queue_type>
 		void Queue<queue_type>::Push( const queue_type& input )
@@ -203,9 +205,10 @@ namespace DataStructures
 			queue_type * new_array;
 			new_array = new queue_type[ allocation_size * 2 ];
 #ifdef _DEBUG
-
 			assert( new_array );
 #endif
+			if (new_array==0)
+				return;
 
 			for ( unsigned int counter = 0; counter < allocation_size; ++counter )
 				new_array[ counter ] = array[ ( head + counter ) % ( allocation_size ) ];
@@ -366,7 +369,7 @@ namespace DataStructures
 	}
 
 	template <class queue_type>
-		void Queue<queue_type>::Del( unsigned int position )
+	void Queue<queue_type>::RemoveAtIndex( unsigned int position )
 	{
 #ifdef _DEBUG
 		assert( position < Size() );
