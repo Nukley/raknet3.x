@@ -8,7 +8,7 @@
 /// license found at
 /// http://creativecommons.org/licenses/by-nc/2.5/
 /// Single application licensees are subject to the license found at
-/// http://www.rakkarsoft.com/SingleApplicationLicense.html
+/// http://www.jenkinssoftware.com/SingleApplicationLicense.html
 /// Custom license users are subject to the terms therein.
 /// GPL license users are subject to the GNU General Public
 /// License as published by the Free
@@ -23,11 +23,16 @@
 #ifndef __BITSTREAM_H
 #define __BITSTREAM_H
 
+#include "RakMemoryOverride.h"
 #include "RakNetDefines.h"
 #include "Export.h"
 #include "RakNetTypes.h"
 #include <assert.h>
+#if defined(_PS3)
 #include <math.h>
+#else
+#include <cmath>
+#endif
 #include <float.h>
 
 #ifdef _MSC_VER
@@ -43,7 +48,7 @@ namespace RakNet
 {
 	/// This class allows you to write and read native types as a string of bits.  BitStream is used extensively throughout RakNet and is designed to be used by users as well.	
 	/// \sa BitStreamSample.txt
-	class RAK_DLL_EXPORT BitStream
+	class RAK_DLL_EXPORT BitStream : public RakNet::RakMemoryOverride
 	{
 	
 	public:
@@ -353,6 +358,10 @@ namespace RakNet
 		/// Ignore data we don't intend to read
 		/// \param[in] numberOfBits The number of bits to ignore
 		void IgnoreBits( const int numberOfBits );
+
+		/// Ignore data we don't intend to read
+		/// \param[in] numberOfBits The number of bytes to ignore
+		void IgnoreBytes( const int numberOfBytes );
 		
 		///Move the write pointer to a position on the array.  
 		/// \param[in] offset the offset from the start of the array. 
@@ -408,8 +417,14 @@ namespace RakNet
 		/// wastes the bits to do the alignment and requires you to call
 		/// ReadAlignedBits at the corresponding read position.
 		/// \param[in] input The data
-		/// \param[in] numberOfBytesToWrite The size of data. 
+		/// \param[in] numberOfBytesToWrite The size of input. 
 		void WriteAlignedBytes( const unsigned char *input,	const int numberOfBytesToWrite );
+
+		/// Aligns the bitstream, writes inputLength, and writes input. Won't write beyond maxBytesToWrite
+		/// \param[in] input The data
+		/// \param[in] inputLength The size of input. 
+		/// \param[in] maxBytesToWrite Max bytes to write
+		void WriteAlignedBytesSafe( const char *input, const int inputLength, const int maxBytesToWrite );
 		
 		/// Read bits, starting at the next aligned bits. Note that the
 		/// modulus 8 starting offset of the sequence must be the same as
@@ -419,6 +434,15 @@ namespace RakNet
 		/// \param[in] numberOfBytesToRead The number of byte to read from the internal state 
 		/// \return true if there is enough byte. 
 		bool ReadAlignedBytes( unsigned char *output,	const int numberOfBytesToRead );
+
+		/// Reads what was written by WriteAlignedBytesSafe
+		/// \param[in] input The data
+		/// \param[in] maxBytesToRead Maximum number of bytes to read
+		bool ReadAlignedBytesSafe( char *input, int &inputLength, const int maxBytesToRead );
+
+		/// Same as ReadAlignedBytesSafe() but allocates the memory for you using new, rather than assuming it is safe to write to
+		/// \param[in] input input will be deleted if it is not a pointer to 0
+		bool ReadAlignedBytesSafeAlloc( char **input, int &inputLength, const int maxBytesToRead );
 		
 		/// Align the next write and/or read to a byte boundary.  This can
 		/// be used to 'waste' bits to byte align for efficiency reasons It
@@ -464,6 +488,10 @@ namespace RakNet
 
 		/// Reallocates (if necessary) in preparation of writing numberOfBitsToWrite 
 		void AddBitsAndReallocate( const int numberOfBitsToWrite );
+
+		/// \internal
+		/// \return How many bits have been allocated internally
+		unsigned int GetNumberOfBitsAllocated(void) const;
 
 
 		/// ---- Member function template specialization declarations ----
@@ -572,6 +600,13 @@ namespace RakNet
 		template <>
 			bool ReadCompressedDelta(bool &var);
 #endif
+
+		static bool DoEndianSwap(void);
+		static bool IsBigEndian(void);
+		static bool IsNetworkOrder(void);
+		static void ReverseBytes(unsigned char *input, unsigned char *output, int length);
+		static void ReverseBytesInPlace(unsigned char *data, int length);
+
 	private:
 
 		BitStream( const BitStream &invalid) {
@@ -588,7 +623,6 @@ namespace RakNet
 		/// Assume the input source points to a compressed native type. Decompress and read it.
 		bool ReadCompressed( unsigned char* output,	const int size, const bool unsignedData );
 		
-		void ReverseBytes(unsigned char *input, unsigned char *output, int length);
 
 		int numberOfBitsUsed;
 		
@@ -737,13 +771,16 @@ namespace RakNet
 			WriteBits( ( unsigned char* ) & var, sizeof( templateType ) * 8, true );
 		else
 		{
-#ifdef __BITSTREAM_SWAP
-			unsigned char output[sizeof(templateType)];
-			ReverseBytes((unsigned char*)&var, output, sizeof(templateType));
-			WriteBits( ( unsigned char* ) output, sizeof(templateType) * 8, true );
-#else
-			WriteBits( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
+#ifndef __BITSTREAM_NATIVE_END
+			if (DoEndianSwap())
+			{
+				unsigned char output[sizeof(templateType)];
+				ReverseBytes((unsigned char*)&var, output, sizeof(templateType));
+				WriteBits( ( unsigned char* ) output, sizeof(templateType) * 8, true );
+			}
+			else
 #endif
+				WriteBits( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
 		}
 	}
 
@@ -763,8 +800,8 @@ namespace RakNet
 	template <>
 		inline void BitStream::Write(SystemAddress var)
 	{
-		WriteBits( ( unsigned char* ) & var.binaryAddress, sizeof(var.binaryAddress) * 8, true );
-		//Write(var.binaryAddress);
+	//	Write(var.binaryAddress);
+		WriteBits( ( unsigned char* ) & var.binaryAddress, sizeof(var.binaryAddress) * 8, true ); 
 		Write(var.port);
 	}
 
@@ -871,17 +908,20 @@ namespace RakNet
 			WriteCompressed( ( unsigned char* ) & var, sizeof( templateType ) * 8, true );
 		else
 		{
+#ifndef __BITSTREAM_NATIVE_END
 #ifdef _MSC_VER
 #pragma warning(disable:4244)   // '=' : conversion from 'unsigned long' to 'unsigned short', possible loss of data
 #endif
 
-#ifdef __BITSTREAM_SWAP
-			unsigned char output[sizeof(templateType)];
-			ReverseBytes((unsigned char*)&var, output, sizeof(templateType));
-			WriteCompressed( ( unsigned char* ) output, sizeof(templateType) * 8, true );
-#else
-			WriteCompressed( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
+			if (DoEndianSwap())
+			{
+				unsigned char output[sizeof(templateType)];
+				ReverseBytes((unsigned char*)&var, output, sizeof(templateType));
+				WriteCompressed( ( unsigned char* ) output, sizeof(templateType) * 8, true );
+			}
+			else
 #endif
+				WriteCompressed( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
 		}
 	}
 
@@ -990,21 +1030,23 @@ namespace RakNet
 			return ReadBits( ( unsigned char* ) &var, sizeof(templateType) * 8, true );
 		else
 		{
+#ifndef __BITSTREAM_NATIVE_END
 #ifdef _MSC_VER
 #pragma warning(disable:4244)   // '=' : conversion from 'unsigned long' to 'unsigned short', possible loss of data
 #endif
-
-#ifdef __BITSTREAM_SWAP
-			unsigned char output[sizeof(templateType)];
-			if (ReadBits( ( unsigned char* ) output, sizeof(templateType) * 8, true ))
+			if (DoEndianSwap())
 			{
-				ReverseBytes(output, (unsigned char*)&var, sizeof(templateType));
-				return true;
+				unsigned char output[sizeof(templateType)];
+				if (ReadBits( ( unsigned char* ) output, sizeof(templateType) * 8, true ))
+				{
+					ReverseBytes(output, (unsigned char*)&var, sizeof(templateType));
+					return true;
+				}
+				return false;
 			}
-			return false;
-#else
-			return ReadBits( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
+			else
 #endif
+				return ReadBits( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
 		}
 	}
 
@@ -1032,8 +1074,8 @@ namespace RakNet
 	template <>
 		inline bool BitStream::Read(SystemAddress &var)
 	{
-		ReadBits( ( unsigned char* ) & var.binaryAddress, sizeof(var.binaryAddress) * 8, true );
-//		Read(var.binaryAddress);
+		// Read(var.binaryAddress);
+		ReadBits( ( unsigned char* ) & var.binaryAddress, sizeof(var.binaryAddress) * 8, true ); 
 		return Read(var.port);
 	}
 
@@ -1085,17 +1127,20 @@ namespace RakNet
 			return ReadCompressed( ( unsigned char* ) &var, sizeof(templateType) * 8, true );
 		else
 		{
-#ifdef __BITSTREAM_SWAP
-			unsigned char output[sizeof(templateType)];
-			if (ReadCompressed( ( unsigned char* ) output, sizeof(templateType) * 8, true ))
+#ifndef __BITSTREAM_NATIVE_END
+			if (DoEndianSwap())
 			{
-				ReverseBytes(output, (unsigned char*)&var, sizeof(templateType));
-				return true;
+				unsigned char output[sizeof(templateType)];
+				if (ReadCompressed( ( unsigned char* ) output, sizeof(templateType) * 8, true ))
+				{
+					ReverseBytes(output, (unsigned char*)&var, sizeof(templateType));
+					return true;
+				}
+				return false;
 			}
-			return false;
-#else			
-			return ReadCompressed( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
+			else
 #endif
+				return ReadCompressed( ( unsigned char* ) & var, sizeof(templateType) * 8, true );
 		}
 	}
 
